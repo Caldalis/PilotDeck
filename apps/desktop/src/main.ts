@@ -270,14 +270,14 @@ class RuntimeManager {
 
     child.stdout?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
-    child.on("managed-exit", (code, signal) => {
+    child.on("managed-exit", (code, signal, startupError) => {
       // Retain the group record until stop() confirms all descendants exited.
       this.log(`[${name}] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
       if (this.expectedExits.delete(child)) return;
       if (name === "gateway" && this.gatewayProcess === child) {
         this.gatewayProcess = null;
         if (!isQuitting) {
-          const detail = `Gateway exited code=${code ?? "null"} signal=${signal ?? "null"}`;
+          const detail = startupError || `Gateway exited code=${code ?? "null"} signal=${signal ?? "null"}`;
           this.setGatewayState({ state: "error", error: detail });
           publishRuntimeStatus({
             phase: "error",
@@ -975,9 +975,9 @@ function waitForPortOrProcessExit(
       child.off("managed-exit", onExit);
       callback();
     };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null, startupError?: string) => {
       finish(() => {
-        reject(new Error(`${name} exited before it was ready (code=${code ?? "null"} signal=${signal ?? "null"}). See runtime log: ${logPath}`));
+        reject(new Error(startupError || `${name} exited before it was ready (code=${code ?? "null"} signal=${signal ?? "null"}). See runtime log: ${logPath}`));
       });
     };
     child.once("managed-exit", onExit);

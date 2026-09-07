@@ -21,7 +21,9 @@ function readRecords(directory, root) {
 
 async function stopRegisteredTree(child, {
   platform = process.platform, graceMs = 1500, forceMs = 3000,
-  inspect = () => listProcesses(platform), signal = (pid, name) => process.kill(pid, name),
+  inspect = () => platform === 'win32'
+    ? identities.getProcessIdentities([...new Set(records().flatMap(entry => [entry.identity?.pid, entry.job?.holder].filter(Boolean)))], platform)
+    : listProcesses(platform), signal = (pid, name) => process.kill(pid, name),
   scope = child[scopes.KEY], records = () => readRecords(scope.directory, scope.entry),
   closeScope = () => { try { mkdirSync(path.join(scope.directory, scope.entry ? `${scope.entry}.closing` : 'closing')); } catch (error) { if (error.code !== 'EEXIST') throw error; } },
   cleanup = () => {
@@ -114,7 +116,7 @@ async function stopRegisteredTree(child, {
     closeScope();
     // Let launchers racing shutdown register or cancel before signalling. A
     // crashed launcher leaves 'pending', which causes a bounded, explicit error.
-    const registrationDeadline = Date.now() + forceMs;
+    const registrationDeadline = scope.startupDeadline || Date.now() + forceMs;
     while ((await snapshot(), records().some(entry => entry.state === 'pending' || (entry.job && !existsSync(entry.job.ready) && !existsSync(entry.job.stopped)))) && Date.now() < registrationDeadline) await pause(50);
     await send('SIGTERM');
     if (!(await waitForExit(graceMs))) {
@@ -165,6 +167,6 @@ export function runManagedCommand(command, args, {
     child.stdout.on('data', data => progress(data.toString()));
     child.stderr.on('data', data => progress(data.toString()));
     child.once('error', error => void finish(error));
-    child.once('managed-exit', code => void finish(code === 0 ? null : Object.assign(new Error(`${command} failed (${code}).`), { reason: 'buildFailed' })));
+    child.once('managed-exit', (code, _signal, startupError) => void finish(code === 0 ? null : Object.assign(new Error(startupError || `${command} failed (${code}).`), { reason: startupError ? 'processStartFailed' : 'buildFailed' })));
   });
 }
