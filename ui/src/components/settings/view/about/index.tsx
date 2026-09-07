@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Info, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { authenticatedFetch } from "../../../../utils/api";
 import { restartAndReload, type RestartUiStatus } from "../../../../utils/restartUi";
@@ -29,7 +29,9 @@ type VersionStatus =
   | "updateAvailable"
   | "installerLaunched"
   | "upToDate"
-  | "unavailable";
+  | "unavailable"
+  | "manualUpdate"
+  | "restartRequired";
 
 type WebUpdateStatusPayload = {
   updateInProgress?: boolean;
@@ -38,6 +40,7 @@ type WebUpdateStatusPayload = {
     alreadyUpToDate?: boolean;
     needsRestart?: boolean;
     error?: unknown;
+    reason?: string;
   } | null;
 };
 
@@ -62,6 +65,8 @@ export default function AboutSections({
   const { t } = useTranslation("settings");
   const [downloading, setDownloading] = useState(false);
   const [webUpdating, setWebUpdating] = useState(false);
+  const [webFailureReason, setWebFailureReason] = useState<string | null>(null);
+  const [webRefused, setWebRefused] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [localUpdateResult, setLocalUpdateResult] = useState<LocalUpdateResult>(null);
   const [downloadedFilePath, setDownloadedFilePath] = useState<string | null>(null);
@@ -95,6 +100,7 @@ export default function AboutSections({
       hasObservedWebUpdateRef.current = false;
       setWebUpdating(false);
       setLocalUpdateResult("failed");
+      setWebFailureReason(result.reason || "applyFailed");
       return "stop";
     }
     if (payload.updateInProgress) {
@@ -148,12 +154,14 @@ export default function AboutSections({
   const status: VersionStatus = useMemo(() => {
     if (checkingVersion || webUpdating) return "checking";
     if (localUpdateResult === "installerLaunched") return "installerLaunched";
+    if (localUpdateResult === "webUpdated") return "restartRequired";
     if (localUpdateResult === "webUpToDate") return "upToDate";
     if (localUpdateResult === "failed") return "unavailable";
     if (versionInfo.checkUnavailable) return "unavailable";
+    if (!isDesktop && versionInfo.webReason && versionInfo.webReason !== "upToDate") return "manualUpdate";
     if (versionInfo.hasUpdate) return "updateAvailable";
     return "upToDate";
-  }, [checkingVersion, localUpdateResult, versionInfo.checkUnavailable, versionInfo.hasUpdate, webUpdating]);
+  }, [checkingVersion, isDesktop, localUpdateResult, versionInfo.checkUnavailable, versionInfo.hasUpdate, versionInfo.webReason, webUpdating]);
 
   const handleDownloadAndInstall = async () => {
     setDownloading(true);
@@ -200,17 +208,25 @@ export default function AboutSections({
   };
 
   const handleWebUpdate = async () => {
+    if (versionInfo.canUpdate !== true || checkingVersion || versionInfo.checkUnavailable
+        || !versionInfo.latestVersion || !versionInfo.latestSourceSha) return;
+    setWebFailureReason(null);
     hasObservedWebUpdateRef.current = true;
     setWebUpdating(true);
     setLocalUpdateResult(null);
     try {
       const res = await authenticatedFetch("/api/update/apply", {
         method: "POST",
+        body: JSON.stringify({ target: { tagName: versionInfo.latestVersion, sourceSha: versionInfo.latestSourceSha } }),
       });
       if (!res.ok) {
-        throw new Error("Failed to apply web update");
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.reason || "applyFailed");
       }
-      const terminalStatus = await readWebUpdateTerminalStatus(res.body);
+      const terminalStatus = await readWebUpdateTerminalStatus(res.body, (reason) => {
+        setWebFailureReason(reason);
+        setWebRefused(reason !== "buildFailed" && reason !== "applyFailed");
+      });
       setLocalUpdateResult(
         terminalStatus === "error"
           ? "failed"
@@ -220,7 +236,10 @@ export default function AboutSections({
       );
       hasObservedWebUpdateRef.current = false;
       stopWebStatusPolling();
-    } catch {
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "applyFailed";
+      setWebFailureReason(reason);
+      setWebRefused(reason !== "buildFailed" && reason !== "applyFailed");
       hasObservedWebUpdateRef.current = false;
       stopWebStatusPolling();
       setLocalUpdateResult("failed");
@@ -269,9 +288,7 @@ export default function AboutSections({
   const showRestartInstallButton = isDesktop && localUpdateResult === "downloaded";
   const showWebUpdateButton =
     !isDesktop
-    && (versionInfo.hasUpdate || webUpdating)
-    && localUpdateResult !== "webUpdated"
-    && localUpdateResult !== "webUpToDate";
+    && localUpdateResult !== "webUpdated";
   const showWebRestartButton = !isDesktop && localUpdateResult === "webUpdated";
   const statusBadgeClass = cn(
     "inline-flex items-center rounded-md border px-2 py-0.5 text-sm font-medium leading-5",
@@ -279,7 +296,7 @@ export default function AboutSections({
       ? "border-blue-300 bg-blue-50 text-blue-700"
       : status === "upToDate" || status === "installerLaunched"
         ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-        : status === "checking"
+        : (status === "checking" || status === "manualUpdate" || status === "restartRequired")
           ? "border-slate-300 bg-slate-50 text-slate-700"
           : "border-red-300 bg-red-50 text-red-700",
   );
@@ -290,7 +307,7 @@ export default function AboutSections({
       <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
 
       <SettingsCard className="overflow-hidden">
-        <div className="grid min-h-[64px] grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4">
+        <div className="grid min-h-[64px] grid-cols-1 sm:grid-cols-[1fr_auto] lg:grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4">
           <div className="min-w-0 text-sm text-foreground">
             <span className="font-medium">
               {t("settingsPage.about.versionStatus")}
@@ -302,6 +319,8 @@ export default function AboutSections({
                 <Loader2 className={cn("mr-1.5 animate-spin", statusIconClass)} />
               ) : status === "unavailable" ? (
                 <X className={cn("mr-1", statusIconClass)} />
+              ) : status === "manualUpdate" ? (
+                <Info className={cn("mr-1", statusIconClass)} />
               ) : (
                 <Check className={cn("mr-1", statusIconClass)} />
               )}
@@ -327,8 +346,8 @@ export default function AboutSections({
             <button
               type="button"
               onClick={handleWebUpdate}
-              disabled={webUpdating || installing}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={webRefused || webUpdating || installing || checkingVersion || versionInfo.checkUnavailable || versionInfo.canUpdate !== true || !versionInfo.hasUpdate || !versionInfo.latestSourceSha || localUpdateResult === "webUpToDate"}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
             >
               {webUpdating ? t("about.updating") : t("about.updateNow")}
             </button>
@@ -358,6 +377,19 @@ export default function AboutSections({
             <div />
           )}
         </div>
+        {!isDesktop && (
+          <div className="space-y-2 border-t border-border px-5 py-4 text-sm">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
+              <span>{t("settingsPage.about.currentVersion")} {versionInfo.currentVersion}</span>
+              <span>{t("settingsPage.about.latestVersion")} {versionInfo.latestVersion || "-"}</span>
+            </div>
+            <p className="text-muted-foreground" role={webFailureReason ? "alert" : undefined}>
+              {t(`settingsPage.about.webUpdateReasons.${webFailureReason || (localUpdateResult === "webUpdated" ? "restartRequired" : versionInfo.webReason) || "standard"}`, {
+                defaultValue: t("settingsPage.about.webUpdateReasons.applyFailed"),
+              })}
+            </p>
+          </div>
+        )}
       </SettingsCard>
 
       {restartStatus && (

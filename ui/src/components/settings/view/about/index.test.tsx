@@ -82,6 +82,48 @@ describe("AboutSections web update status recovery", () => {
     });
   }
 
+  it.each(["development", "localChanges", "container", "unknownVersion", "ahead", "diverged", "upToDate"])(
+    "keeps the update button disabled for %s",
+    async (reason) => {
+      mockedFetch.mockResolvedValue(responseJson({ updateInProgress: false, lastUpdateResult: null }));
+      renderAbout({ webReason: reason, canUpdate: false, hasUpdate: reason !== "upToDate" });
+      await flushEffects();
+      const button = screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(screen.getByText(`settingsPage.about.webUpdateReasons.${reason}`)).toBeTruthy();
+      fireEvent.click(button);
+      expect(mockedFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("submits the displayed release target and shows the restart action on success", async () => {
+    mockedFetch
+      .mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: null }))
+      .mockResolvedValueOnce(new Response(`${JSON.stringify({ stage: "complete", status: "success" })}\n`));
+    renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
+    await flushEffects();
+    const button = screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(await screen.findByRole("button", { name: "about.restartToApply" })).toBeTruthy();
+    expect(mockedFetch).toHaveBeenCalledWith("/api/update/apply", {
+      method: "POST",
+      body: JSON.stringify({ target: { tagName: "v2026.09.07", sourceSha: "a".repeat(40) } }),
+    });
+  });
+
+  it("explains a backend refusal after the workspace changes", async () => {
+    mockedFetch
+      .mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: null }))
+      .mockResolvedValueOnce(responseJson({ reason: "localChanges" }, false));
+    renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
+    await flushEffects();
+    fireEvent.click(screen.getByRole("button", { name: "about.updateNow" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "settingsPage.about.webUpdateReasons.localChanges");
+    expect(screen.queryByRole("button", { name: "about.restartToApply" })).toBeNull();
+    expect((screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("restores the restart action when the previous update needs a restart", async () => {
     mockedFetch.mockResolvedValue(responseJson({
       updateInProgress: false,

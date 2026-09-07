@@ -15,6 +15,9 @@ export type DesktopVersionCheckResult = {
   latestVersion: string | null;
   latestPublishedAt: string | null;
   buildTime: string | null;
+  canUpdate?: boolean;
+  webReason?: string | null;
+  latestSourceSha?: string | null;
 };
 
 function normalizeDesktopVersionResult(payload: any): DesktopVersionCheckResult {
@@ -34,10 +37,13 @@ function normalizeWebVersionResult(payload: any): DesktopVersionCheckResult {
     mode: "web",
     hasUpdate: Boolean(payload?.hasUpdate),
     checkUnavailable: Boolean(payload?.checkUnavailable),
-    currentVersion: payload?.localHead ?? "unknown",
-    latestVersion: payload?.remoteHead ?? null,
-    latestPublishedAt: null,
-    buildTime: null,
+    currentVersion: payload?.current?.tagName || payload?.current?.sourceSha?.slice(0, 8) || "unknown",
+    latestVersion: payload?.latest?.tagName ?? null,
+    latestPublishedAt: payload?.latest?.publishedAt ?? null,
+    buildTime: payload?.current?.buildTime ?? null,
+    canUpdate: payload?.canUpdate === true,
+    webReason: payload?.reason ?? null,
+    latestSourceSha: payload?.latest?.sourceSha ?? null,
   };
 }
 
@@ -93,6 +99,8 @@ function SettingsInner({
         ...prev,
         hasUpdate: false,
         checkUnavailable: true,
+        canUpdate: false,
+        webReason: "checkFailed",
       }));
     } finally {
       setCheckingVersion(false);

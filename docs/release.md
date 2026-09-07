@@ -70,9 +70,9 @@ Publishing and packaged repository metadata use the repository running the
 workflow. Upstream builds publish to `OpenBMB/PilotDeck`; fork builds publish to
 their own repository.
 
-This phase changes packaging and publishing only. The Web and desktop in-app
-update flows have not yet been migrated to the unified release tags; that
-integration is a separate follow-up.
+Web self-update now reads these unified releases; see [Web updates](web-update.md)
+for supported deployments and the update process. Desktop in-app update discovery
+has not yet been migrated to the unified tags and remains a separate follow-up.
 
 ## Required GitHub Secrets
 
