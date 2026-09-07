@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PilotDeckConfigProvider } from "../../hooks/usePilotDeckConfig";
+import { desktopUpdates } from "../../utils/desktopUpdates";
 import { authenticatedFetch } from "../../utils/api";
 import type { SettingsProps } from "./shared/types";
 import type { SettingsMenuKey } from "./types";
@@ -82,17 +83,14 @@ function SettingsInner({
   const checkVersion = useCallback(async () => {
     setCheckingVersion(true);
     try {
-      const res = isDesktopApp
-        ? await authenticatedFetch("/api/update/desktop/check", {
-            method: "POST",
-          })
-        : await authenticatedFetch("/api/update/check", {
-            method: "POST",
-          });
-      if (!res.ok) {
-        throw new Error("Failed to check version");
+      let data;
+      if (isDesktopApp) {
+        data = await desktopUpdates().checkUpdates();
+      } else {
+        const res = await authenticatedFetch("/api/update/check", { method: "POST" });
+        if (!res.ok) throw new Error("Failed to check version");
+        data = await res.json();
       }
-      const data = await res.json();
       setVersionInfo(
         isDesktopApp
           ? normalizeDesktopVersionResult(data)

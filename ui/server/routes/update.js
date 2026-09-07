@@ -4,14 +4,6 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { createWebUpdateRouter } from './webUpdate.js';
 import {
-  cancelDesktopUpdateDownload,
-  getDesktopDownloadStatus,
-  getDesktopUpdateStatus,
-  launchDownloadedDesktopUpdate,
-  listDesktopReleases,
-  startDesktopUpdateDownload,
-} from '../services/desktopUpdateService.js';
-import {
   isSupervisorRestartEnabled,
   normalizeUpdateRuntimeError,
   requestSupervisorRestart,
@@ -25,99 +17,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 const router = express.Router();
 
-// Route desktop checks to the client-specific installation policy.
-router.post('/check', async (req, res, next) => {
-  if (req.body?.scope !== 'desktop' && req.query.scope !== 'desktop') return next();
-  const status = await getDesktopUpdateStatus({ force: req.body?.force === true || req.query.force === '1' });
-  res.json(toLegacyCompatibleDesktopStatus(status));
-});
 router.use(createWebUpdateRouter());
-
-/**
- * GET /api/update/desktop/status
- * Return desktop-app version status backed by GitHub Releases.
- */
-router.get('/desktop/status', async (req, res) => {
-  const force = req.query.force === '1' || req.query.force === 'true';
-  const status = await getDesktopUpdateStatus({ force });
-  res.json(status);
-});
-
-/**
- * POST /api/update/desktop/check
- * Force-check the latest desktop release.
- */
-router.post('/desktop/check', async (_req, res) => {
-  const status = await getDesktopUpdateStatus({ force: true });
-  res.json(status);
-});
-
-/**
- * GET /api/update/desktop/releases
- * Return recent GitHub Release notes for the desktop About page.
- */
-router.get('/desktop/releases', async (req, res) => {
-  try {
-    const limit = req.query.limit;
-    const payload = await listDesktopReleases({ limit });
-    res.json(payload);
-  } catch (error) {
-    res.status(502).json({
-      error: 'Failed to fetch desktop releases',
-      message: error.message,
-    });
-  }
-});
-
-/**
- * POST /api/update/desktop/download
- * Start downloading the selected desktop installer asset.
- */
-router.post('/desktop/download', async (req, res) => {
-  try {
-    const download = await startDesktopUpdateDownload();
-    res.status(202).json({ success: true, download });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({
-      error: 'Failed to start desktop update download',
-      reason: error.reason || 'downloadFailed',
-      message: error.message,
-    });
-  }
-});
-
-/**
- * GET /api/update/desktop/download/status
- * Poll desktop installer download progress.
- */
-router.get('/desktop/download/status', (_req, res) => {
-  res.json({ download: getDesktopDownloadStatus() });
-});
-
-/**
- * POST /api/update/desktop/download/cancel
- * Cancel an in-flight desktop installer download.
- */
-router.post('/desktop/download/cancel', (_req, res) => {
-  res.json(cancelDesktopUpdateDownload());
-});
-
-/**
- * POST /api/update/desktop/install
- * Launch the downloaded installer through the OS shell.
- */
-router.post('/desktop/install', async (req, res) => {
-  try {
-    const result = await launchDownloadedDesktopUpdate({ filePath: req.body?.filePath });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({
-      error: 'Failed to launch desktop update installer',
-      reason: error.reason || 'installFailed',
-      message: error.message,
-    });
-  }
-});
 
 /**
  * POST /api/update/restart
@@ -206,22 +106,6 @@ export function createRestartHandler({
 }
 
 router.post('/restart', createRestartHandler());
-
-function toLegacyCompatibleDesktopStatus(status) {
-  const releaseSummary = status.latest
-    ? [status.latest.tagName, status.latest.name].filter(Boolean).join(' ')
-    : '';
-  return {
-    ...status,
-    currentBranch: 'desktop',
-    localHead: status.current?.version || 'unknown',
-    remoteHead: status.latest?.version || '',
-    behindCount: status.hasUpdate ? 1 : 0,
-    newCommits: releaseSummary ? [releaseSummary] : [],
-    currentCommit: status.current?.commit || '',
-    hasUpdate: status.hasUpdate,
-  };
-}
 
 export function createUpdateRouter(options = {}) {
   const restartRouter = express.Router();

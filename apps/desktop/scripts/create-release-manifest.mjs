@@ -12,7 +12,8 @@ if (files.length === 0) throw new Error(`No desktop release assets found under $
 const assets = files.map((file) => ({
   name: basename(file),
   size: statSync(file).size,
-  sha256: sha256(file),
+  sha256: digest(file, "sha256", "hex"),
+  sha512: digest(file, "sha512", "base64"),
   platform: inferPlatform(file),
   arch: inferArch(file),
 }));
@@ -41,8 +42,8 @@ function listFiles(directory) {
   });
 }
 
-function sha256(file) {
-  return createHash("sha256").update(readFileSync(file)).digest("hex");
+function digest(file, algorithm, encoding) {
+  return createHash(algorithm).update(readFileSync(file)).digest(encoding);
 }
 
 function inferPlatform(file) {

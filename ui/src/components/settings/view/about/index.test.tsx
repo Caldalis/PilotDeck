@@ -56,6 +56,7 @@ function renderAbout(versionInfo: Partial<DesktopVersionCheckResult> = {}) {
 describe("AboutSections web update status recovery", () => {
   beforeEach(() => {
     mockedFetch.mockReset();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -88,7 +89,7 @@ describe("AboutSections web update status recovery", () => {
       mockedFetch.mockResolvedValue(responseJson({ updateInProgress: false, lastUpdateResult: null }));
       renderAbout({ webReason: reason, canUpdate: false, hasUpdate: reason !== "upToDate" });
       await flushEffects();
-      const button = screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement;
+      const button = screen.getByRole("button", { name: "about.updateAndRestart" }) as HTMLButtonElement;
       expect(button.disabled).toBe(true);
       expect(screen.getByText(`settingsPage.about.webUpdateReasons.${reason}`)).toBeTruthy();
       fireEvent.click(button);
@@ -96,16 +97,19 @@ describe("AboutSections web update status recovery", () => {
     },
   );
 
-  it("submits the displayed release target and shows the restart action on success", async () => {
+  it("submits the displayed release target and automatically restarts on success", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("restarting")));
     mockedFetch
       .mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: null }))
-      .mockResolvedValueOnce(new Response(`${JSON.stringify({ stage: "complete", status: "success" })}\n`));
+      .mockResolvedValueOnce(new Response(`${JSON.stringify({ stage: "complete", status: "success" })}\n`))
+      .mockResolvedValueOnce(responseJson({ status: "accepted" }));
     renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
     await flushEffects();
-    const button = screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", { name: "about.updateAndRestart" }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    expect(await screen.findByRole("button", { name: "about.restartToApply" })).toBeTruthy();
+    expect(await screen.findByText("about.restartingTitle")).toBeTruthy();
+    expect(mockedFetch).toHaveBeenCalledWith("/api/update/restart", expect.objectContaining({ method: "POST" }));
     expect(mockedFetch).toHaveBeenCalledWith("/api/update/apply", {
       method: "POST",
       body: JSON.stringify({ target: { tagName: "v2026.09.07", sourceSha: "a".repeat(40) } }),
@@ -118,10 +122,10 @@ describe("AboutSections web update status recovery", () => {
       .mockResolvedValueOnce(responseJson({ reason: "localChanges" }, false));
     renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
     await flushEffects();
-    fireEvent.click(screen.getByRole("button", { name: "about.updateNow" }));
+    fireEvent.click(screen.getByRole("button", { name: "about.updateAndRestart" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "settingsPage.about.webUpdateReasons.localChanges");
     expect(screen.queryByRole("button", { name: "about.restartToApply" })).toBeNull();
-    expect((screen.getByRole("button", { name: "about.updateNow" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "about.updateAndRestart" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("restores the restart action when the previous update needs a restart", async () => {
@@ -138,6 +142,17 @@ describe("AboutSections web update status recovery", () => {
 
     expect(await screen.findByRole("button", { name: "about.restartToApply" })).toBeTruthy();
     expect(mockedFetch).toHaveBeenCalledWith("/api/update/status");
+  });
+
+  it("resumes the one-click restart after reopening About", async () => {
+    sessionStorage.setItem("pilotdeck-web-update-restart", "1");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("restarting")));
+    mockedFetch.mockResolvedValueOnce(responseJson({ lastUpdateResult: { success: true, needsRestart: true } }))
+      .mockResolvedValueOnce(responseJson({ status: "accepted" }));
+    renderAbout();
+    expect(await screen.findByText("about.restartingTitle")).toBeTruthy();
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeNull();
+    expect(mockedFetch).toHaveBeenCalledWith("/api/update/restart", expect.objectContaining({ method: "POST" }));
   });
 
   it("shows updating and polls when an update is already in progress", async () => {

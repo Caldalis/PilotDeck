@@ -70,6 +70,7 @@ function WebAboutSections({
   const [restartStatus, setRestartStatus] = useState<RestartModalStatus | null>(null);
   const webStatusPollRef = useRef<number | null>(null);
   const hasObservedWebUpdateRef = useRef(false);
+  const autoRestartRef = useRef(sessionStorage.getItem("pilotdeck-web-update-restart") === "1");
 
   const stopWebStatusPolling = useCallback(() => {
     if (webStatusPollRef.current !== null) {
@@ -155,6 +156,8 @@ function WebAboutSections({
   const handleWebUpdate = async () => {
     if (versionInfo.canUpdate !== true || checkingVersion || versionInfo.checkUnavailable
         || !versionInfo.latestVersion || !versionInfo.latestSourceSha) return;
+    autoRestartRef.current = true;
+    sessionStorage.setItem("pilotdeck-web-update-restart", "1");
     setWebFailureReason(null);
     hasObservedWebUpdateRef.current = true;
     setWebUpdating(true);
@@ -216,6 +219,18 @@ function WebAboutSections({
     );
   };
 
+  useEffect(() => {
+    if (!autoRestartRef.current) return;
+    if (localUpdateResult === "webUpdated") {
+      autoRestartRef.current = false;
+      sessionStorage.removeItem("pilotdeck-web-update-restart");
+      handleWebRestart();
+    } else if (localUpdateResult === "failed" || localUpdateResult === "webUpToDate") {
+      autoRestartRef.current = false;
+      sessionStorage.removeItem("pilotdeck-web-update-restart");
+    }
+  }, [localUpdateResult]);
+
   const showWebUpdateButton = localUpdateResult !== "webUpdated";
   const showWebRestartButton = localUpdateResult === "webUpdated";
   const statusBadgeClass = cn(
@@ -266,7 +281,7 @@ function WebAboutSections({
               disabled={webRefused || webUpdating || installing || checkingVersion || versionInfo.checkUnavailable || versionInfo.canUpdate !== true || !versionInfo.hasUpdate || !versionInfo.latestSourceSha || localUpdateResult === "webUpToDate"}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
             >
-              {webUpdating ? t("about.updating") : t("about.updateNow")}
+              {webUpdating ? t("about.updating") : t("about.updateAndRestart")}
             </button>
           ) : showWebRestartButton ? (
             <button

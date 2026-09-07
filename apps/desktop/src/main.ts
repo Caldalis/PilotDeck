@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { MacUpdater, NsisUpdater } from "electron-updater";
+import { createUpdateController } from "./updates";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -46,6 +48,7 @@ let runtime: RuntimeManager | null = null;
 let isQuitting = false;
 let runtimeStartPromise: Promise<RuntimeInfo> | null = null;
 let lastRuntimeStatus: RuntimeStatus | null = null;
+let updateOrigin: string | null = null;
 
 const APP_ID = "cn.pilotdeck.desktop";
 const EXTERNAL_NAVIGATION_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
@@ -189,7 +192,8 @@ class RuntimeManager {
     return this.info;
   }
 
-  async stop(): Promise<void> {
+  async stop(strict = false): Promise<void> {
+    const failures: unknown[] = [];
     this.stopping = true;
     await this.gatewayStopPromise?.catch(() => undefined);
     this.serverProcess = null;
@@ -198,9 +202,11 @@ class RuntimeManager {
     for (const proc of [...this.processes].reverse()) {
       this.expectedExits.add(proc.child);
       await killProcessTree(proc.child).catch((error) => {
+        failures.push(error);
         this.log(`Failed to stop ${proc.name}: ${String(error)}`);
       });
     }
+    if (strict && failures.length) throw new Error("Failed to stop desktop runtime before installation");
     this.processes.length = 0;
     this.log("PilotDeck Desktop runtime stopped");
     this.logStream?.end();
@@ -509,6 +515,7 @@ async function createOrShowWindow(): Promise<void> {
 }
 
 async function loadRuntimeUrl(info: RuntimeInfo): Promise<void> {
+  updateOrigin = `http://127.0.0.1:${info.serverPort}`;
   if (!mainWindow || mainWindow.isDestroyed()) {
     await createOrShowWindow();
   }
@@ -999,6 +1006,52 @@ function killProcessTree(child: ChildProcess): Promise<void> {
   });
 }
 
+let updateController: ReturnType<typeof createUpdateController> | null = null;
+function getUpdateController() {
+  if (updateController) return updateController;
+  // Node bundled with Electron supports require(ESM). Reuse the same release
+  // discovery module as Web, from the packaged runtime outside app.asar.
+  const releases = require(path.join(resolveRuntimeRoot(), "ui/server/services/releaseService.js"));
+  const repository = releases.normalizeRepository(process.env.PILOTDECK_UPDATE_REPOSITORY || readBuildMetadata().repository || DEFAULT_UPDATE_REPOSITORY);
+  const updater = process.platform === "darwin" ? new MacUpdater() : new NsisUpdater();
+  updateController = createUpdateController({
+    updater, repository, platform: process.platform, arch: process.arch,
+    version: app.getVersion(), packaged: app.isPackaged,
+    latestRelease: () => releases.getLatestRelease({ repository }),
+    compareVersions: releases.compareVersions,
+    prepareToInstall: async () => {
+      isQuitting = true;
+      await runtimeStartPromise?.catch(() => undefined);
+      const currentRuntime = runtime;
+      await currentRuntime?.stop(true);
+      runtime = null;
+      runtimeStartPromise = null;
+    },
+    recoverRuntime: async () => {
+      isQuitting = false;
+      await retryRuntime();
+    },
+  });
+  return updateController;
+}
+
+function requireUpdateSender(event: Electron.IpcMainInvokeEvent) {
+  const frame = event.senderFrame;
+  // Only our loaded application can start or cancel an update; never a child
+  // frame or external page. Status remains available while runtime is stopping.
+  if (!mainWindow || event.sender !== mainWindow.webContents || frame !== event.sender.mainFrame) throw new Error("Invalid update sender");
+  const url = new URL(frame.url);
+  if (!updateOrigin || url.origin !== updateOrigin) throw new Error("Invalid update origin");
+}
+for (const [channel, action] of Object.entries({
+  "pilotdeck:update-check": () => getUpdateController().check(),
+  "pilotdeck:update-status": () => getUpdateController().status(),
+  "pilotdeck:update-start": () => getUpdateController().start(),
+  "pilotdeck:update-cancel": () => getUpdateController().cancel(),
+})) {
+  ipcMain.handle(channel, (event) => { requireUpdateSender(event); return action(); });
+}
+
 ipcMain.handle("pilotdeck:get-runtime-info", () => runtime?.getInfo());
 ipcMain.handle("pilotdeck:retry-runtime", () => retryRuntime());
 ipcMain.handle("pilotdeck:open-runtime-log", async () => {
@@ -1035,11 +1088,11 @@ app.whenReady()
   });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin" && !isQuitting) app.quit();
 });
 
 app.on("activate", () => {
-  if (mainWindow === null || mainWindow.isDestroyed()) {
+  if (!isQuitting && (mainWindow === null || mainWindow.isDestroyed())) {
     createOrShowWindow()
       .then(startRuntimeAndLoad)
       .catch((error) => {
@@ -1060,5 +1113,6 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   const currentRuntime = runtime;
   runtime = null;
-  currentRuntime.stop().finally(() => app.exit(0));
+  // Continue the normal quit lifecycle, including updater listeners.
+  currentRuntime.stop().finally(() => app.quit());
 });

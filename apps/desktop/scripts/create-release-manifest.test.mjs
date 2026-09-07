@@ -15,6 +15,11 @@ test("unified release manifest links the source tag and checksummed installers",
     for (const name of [
       "PilotDeck-2026.903.0-mac-arm64.dmg",
       "PilotDeck-2026.903.0-mac-x64.dmg",
+      "PilotDeck-2026.903.0-mac-arm64.zip",
+      "PilotDeck-2026.903.0-mac-x64.zip",
+      "latest-arm64-mac.yml",
+      "latest-x64-mac.yml",
+      "latest-x64.yml",
       "PilotDeck-2026.903.0-win-x64-setup.exe",
     ]) {
       writeFileSync(resolve(assetsDir, name), name);
@@ -49,6 +54,7 @@ test("unified release manifest links the source tag and checksummed installers",
       const contents = readFileSync(resolve(assetsDir, asset.name));
       const hash = createHash("sha256").update(contents).digest("hex");
       assert.equal(asset.sha256, hash);
+      assert.equal(asset.sha512, createHash("sha512").update(contents).digest("base64"));
       assert.equal(asset.size, contents.length);
       assert.ok(checksums.includes(`${hash}  ${asset.name}\n`));
     }
@@ -57,10 +63,15 @@ test("unified release manifest links the source tag and checksummed installers",
         .map(({ name, platform, arch }) => ({ name, platform, arch }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       [
+        { name: "latest-arm64-mac.yml", platform: "darwin", arch: "arm64" },
+        { name: "latest-x64-mac.yml", platform: "darwin", arch: "x64" },
+        { name: "latest-x64.yml", platform: "unknown", arch: "x64" },
+        { name: "PilotDeck-2026.903.0-mac-arm64.zip", platform: "darwin", arch: "arm64" },
+        { name: "PilotDeck-2026.903.0-mac-x64.zip", platform: "darwin", arch: "x64" },
         { name: "PilotDeck-2026.903.0-mac-arm64.dmg", platform: "darwin", arch: "arm64" },
         { name: "PilotDeck-2026.903.0-mac-x64.dmg", platform: "darwin", arch: "x64" },
         { name: "PilotDeck-2026.903.0-win-x64-setup.exe", platform: "win32", arch: "x64" },
-      ],
+      ].sort((left, right) => left.name.localeCompare(right.name)),
     );
   } finally {
     rmSync(assetsDir, { recursive: true, force: true });

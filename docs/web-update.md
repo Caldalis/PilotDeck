@@ -50,7 +50,8 @@ inconsistent metadata disables self-update; rebuild and restart manually.
    and build outputs, and fast-forwards `main` to the release commit. It does
    not stash changes or run `git reset --hard`. If that transfer or fast-forward
    fails, it attempts to restore the previous artifacts.
-5. The page offers Restart to apply. The existing restart confirmation flow
+5. “Update and restart” automatically starts the restart after a successful build.
+   The existing restart confirmation flow
    waits for a new service instance before reloading the page.
 
 The update is not an atomic deployment across a process crash or power failure,
@@ -61,5 +62,7 @@ an update lock while another updater is running.
 
 Preparation progress and failures are logged with `[web-update]`. In-process
 status allows the About page to recover an active update or pending restart
-when reopened. `scripts/update.sh` uses the same eligibility checks and staged
+when reopened. A pending one-click restart is remembered for the current browser
+session; reopening About resumes it. Other pending updates retain the explicit
+restart action. `scripts/update.sh` uses the same eligibility checks and staged
 update implementation; it requires a manual service restart on completion.

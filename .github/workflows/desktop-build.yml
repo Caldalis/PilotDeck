@@ -164,6 +164,7 @@ jobs:
           test "$(lipo -archs "$native_path")" = "$MACH_ARCH"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           hdiutil verify "$dmg_path"
+          ELECTRON_RUN_AS_NODE=1 "$app_path/Contents/MacOS/PilotDeck" apps/desktop/scripts/verify-updater.cjs "$app_path/Contents/Resources/app.asar"
 
       - name: Verify production macOS identity and notarization
         if: ${{ inputs.require_macos_signing }}
@@ -175,11 +176,20 @@ jobs:
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=2 "$app_path"
 
+      - name: Prepare architecture-specific macOS update feed
+        run: |
+          test -s apps/desktop/dist-electron/latest-mac.yml
+          test -s apps/desktop/dist-electron/PilotDeck-*-mac-${{ matrix.arch }}.zip
+          mv apps/desktop/dist-electron/latest-mac.yml apps/desktop/dist-electron/latest-${{ matrix.arch }}-mac.yml
+
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
         with:
           name: pilotdeck-desktop-macos-${{ matrix.arch }}
-          path: apps/desktop/dist-electron/*-mac-${{ matrix.arch }}.dmg
+          path: |
+            apps/desktop/dist-electron/*-mac-${{ matrix.arch }}.dmg
+            apps/desktop/dist-electron/*-mac-${{ matrix.arch }}.zip
+            apps/desktop/dist-electron/latest-${{ matrix.arch }}-mac.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -223,11 +233,24 @@ jobs:
           $installer = Get-ChildItem 'apps/desktop/dist-electron/*-setup.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Windows installer was not generated.' }
           if ($installer.Length -le 0) { throw 'Windows installer is empty.' }
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & 'apps/desktop/dist-electron/win-unpacked/PilotDeck.exe' apps/desktop/scripts/verify-updater.cjs apps/desktop/dist-electron/win-unpacked/resources/app.asar | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged updater validation failed.' }
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+
+      - name: Prepare Windows update feed
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'apps/desktop/dist-electron/latest.yml')) { throw 'Update feed was not generated.' }
+          Move-Item 'apps/desktop/dist-electron/latest.yml' 'apps/desktop/dist-electron/latest-x64.yml'
+          if (-not (Test-Path 'apps/desktop/dist-electron/win-unpacked/resources/elevate.exe')) { throw 'Update elevation helper is missing.' }
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: pilotdeck-desktop-windows
-          path: apps/desktop/dist-electron/*-setup.exe
+          path: |
+            apps/desktop/dist-electron/*-setup.exe
+            apps/desktop/dist-electron/latest-x64.yml
           if-no-files-found: error
           retention-days: 14

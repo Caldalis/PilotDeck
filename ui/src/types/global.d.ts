@@ -1,3 +1,4 @@
+import type { DesktopUpdateCheck, DesktopUpdateState } from "../utils/desktopUpdates";
 export {};
 
 declare global {
@@ -10,6 +11,10 @@ declare global {
     // command handler) can surface a friendly "not found" message.
     switchProject?: (projectName: string) => boolean;
     pilotdeckDesktop?: {
+      checkUpdates: () => Promise<DesktopUpdateCheck>;
+      getUpdateStatus: () => Promise<DesktopUpdateState>;
+      startUpdate: () => Promise<DesktopUpdateState>;
+      cancelUpdate: () => Promise<DesktopUpdateState>;
       getRuntimeInfo: () => Promise<{
         serverPort: number;
         gatewayPort: number;

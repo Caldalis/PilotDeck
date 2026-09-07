@@ -10,17 +10,19 @@
     "compile": "tsc -p tsconfig.json",
     "dev": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron .",
     "pack": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --dir",
-    "dist:mac": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac",
-    "dist:mac:arm64": "PILOTDECK_DESKTOP_NODE_ARCH=arm64 node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac --arm64",
-    "dist:mac:x64": "PILOTDECK_DESKTOP_NODE_ARCH=x64 node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac --x64",
-    "dist:win": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --win",
-    "dist:win:portable": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --win portable",
+    "dist:mac": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac --publish never",
+    "dist:mac:arm64": "PILOTDECK_DESKTOP_NODE_ARCH=arm64 node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac --arm64 --publish never",
+    "dist:mac:x64": "PILOTDECK_DESKTOP_NODE_ARCH=x64 node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --mac --x64 --publish never",
+    "dist:win": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --win --publish never",
+    "dist:win:portable": "node scripts/build-runtime.mjs && tsc -p tsconfig.json && electron-builder --win portable --publish never",
     "download-git-bash": "node scripts/download-git-bash.mjs",
     "download-node": "node scripts/download-node.mjs",
     "download-playwright-browsers": "node scripts/download-playwright-browsers.mjs",
     "test": "node --test scripts/*.test.mjs"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
   "devDependencies": {
     "@types/node": "^25.0.0",
     "electron": "^42.3.3",
@@ -40,8 +42,7 @@
         "from": ".",
         "filter": [
           "dist/**/*",
-          "package.json",
-          "!node_modules/**/*"
+          "package.json"
         ]
       }
     ],
@@ -49,9 +50,6 @@
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
     "afterPack": "scripts/after-pack.cjs",
-    "extraMetadata": {
-      "dependencies": {}
-    },
     "extraResources": [
       {
         "from": "resources/node",
@@ -92,7 +90,8 @@
         "Contents/Resources/runtime/node_modules/playwright-core/\\.local-browsers/"
       ],
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ]
     },
     "win": {
@@ -118,6 +117,10 @@
     },
     "portable": {
       "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/OpenBMB/PilotDeck/releases/latest/download"
     }
   }
 }

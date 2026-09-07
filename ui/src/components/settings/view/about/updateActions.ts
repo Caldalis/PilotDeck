@@ -1,5 +1,3 @@
-import { authenticatedFetch } from "../../../../utils/api";
-
 export type WebUpdateTerminalStatus = "success" | "up-to-date" | "error";
 
 type UpdateProgressMessage = {
@@ -7,14 +5,6 @@ type UpdateProgressMessage = {
   status?: unknown;
   reason?: string;
 };
-
-type RequestLike = (
-  url: string,
-  options?: {
-    method?: string;
-    body?: string;
-  },
-) => Promise<{ ok: boolean }>;
 
 function readTerminalStatus(
   line: string,
@@ -83,17 +73,4 @@ export async function readWebUpdateTerminalStatus(
     throw new Error("Update stream ended without a terminal status.");
   }
   return terminalStatus;
-}
-
-export async function launchDesktopInstaller(
-  filePath: string | null,
-  request: RequestLike = authenticatedFetch,
-): Promise<void> {
-  const response = await request("/api/update/desktop/install", {
-    method: "POST",
-    body: JSON.stringify({ filePath }),
-  });
-  if (!response.ok) {
-    throw new Error("Failed to launch desktop installer");
-  }
 }

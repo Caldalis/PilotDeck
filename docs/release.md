@@ -44,15 +44,15 @@ zero-based release revision. An explicitly requested existing tag is rejected.
 Each release shares one exact `main` commit across the tag, desktop installers,
 and Web source code:
 
-- Assets: macOS arm64 and x64 DMGs, the Windows installer, `release.json`, and
-  `SHA256SUMS.txt`.
+- Assets: macOS arm64 and x64 DMGs and update ZIPs, the Windows installer,
+  architecture-specific update feeds, `release.json`, and `SHA256SUMS.txt`.
 - Web source: GitHub's automatically provided **Source code (zip)** and
   **Source code (tar.gz)** archives for the release tag. No separate Web archive
   or prebuilt deployment package is uploaded; source deployments still install
   dependencies and build the application.
 - `release.json`: the numeric version, tag, release date, metadata generation
   time (`buildTime`), source commit (`sourceSha`), repository, and installer
-  sizes, platforms, architectures, and SHA-256 checksums. `SHA256SUMS.txt`
+  sizes, platforms, architectures, and SHA-256/SHA-512 checksums. `SHA256SUMS.txt`
   covers the uploaded installers, not GitHub-generated source archives.
 
 Release detection considers Web, Gateway, desktop, shared runtime, and Docker
@@ -83,35 +83,53 @@ with Electron's `app.getVersion()`: only a higher version offers an update.
 Equal or older releases never trigger a downgrade. Historical `desktop-v` tags
 and filename-based version guessing are not supported.
 
-Installer selection requires an exact platform and running-client architecture:
+Automatic update selection requires an exact platform and running-client architecture:
 
-| Client | Installer |
-| --- | --- |
-| macOS arm64 | arm64 DMG |
-| macOS x64 (including Rosetta) | x64 DMG |
-| Windows x64 | x64 setup EXE |
+| Client | Update payload | Feed |
+| --- | --- | --- |
+| macOS arm64 | arm64 ZIP | `latest-arm64-mac.yml` |
+| macOS x64 (including Rosetta) | x64 ZIP | `latest-x64-mac.yml` |
+| Windows x64 | x64 setup EXE | `latest-x64.yml` |
 
-Missing or ambiguous installers disable downloading with an explanation. A client
-does not switch architectures automatically. Unsupported platforms, unknown
-versions, and failed release checks also disable downloading.
+DMGs remain available for initial Mac installation. Each Mac build produces its
+own feed, renamed before artifact upload so the matrix jobs cannot overwrite one
+another's metadata. Each feed contains only its own architecture. CI verifies all
+three feeds and both ZIPs before publishing. Full downloads are used initially;
+blockmaps and differential updates are not required.
 
-The About page provides two explicit actions:
+**Update and restart** is one explicit user action. The Electron main process
+uses the shared release discovery module, then pins electron-updater's generic
+feed to that exact GitHub Release tag. It checks the feed version, file names,
+architecture, sizes and SHA-512 hashes against `release.json` before downloading.
+Electron-updater verifies the downloaded payload; the client also verifies its
+SHA-256 before stopping the gateway and Web server. Finally it invokes the
+updater to install and relaunch the application. macOS performs native signature
+verification; Windows may show an administrator approval prompt because our
+NSIS installer is per-machine.
 
-1. **Download update** streams the installer into a unique update-cache directory,
-   shows progress, and verifies its size and SHA-256 against `release.json`.
-   Cancellation and failures remove the partial download; a new attempt starts
-   from the beginning.
-2. **Install update** checks the cached file's path, size and SHA-256 again before
-   opening it through macOS `open` or Windows PowerShell `Start-Process`. Windows
-   passes the path as environment data, so the system can launch the installer
-   and handle its elevation prompt. This does not silently install the update.
-   The user completes the installer steps and restarts the client. On macOS this
-   includes replacing the application in Applications.
+The updater is a production dependency inside `app.asar`. CI loads it and its
+transitive dependencies using the packaged Electron executable, and checks that
+Windows includes `elevate.exe`. Normal shutdown continues through `app.quit()`;
+the update path stops managed services first and lets the updater own process
+exit. It must never short-circuit this with `app.exit()`.
 
-Reopening About recovers an active or completed download from the server. Jobs
-are held for the current client process only; restarting the client requires a
-new download. An OS launch failure retains the verified installer for retry,
-while a missing or modified file requires downloading again.
+The About page polls Electron IPC, so closing settings or stopping the Web server
+does not interrupt the update. Checking and downloading can be cancelled; the
+install phase cannot. Download/verification failures leave services running and
+allow retry. Installation errors received while Electron is still running
+restore the runtime and ask the user to restart the client before retrying.
+Closing the client normally does not automatically install a cached update.
+Unpackaged development clients cannot install updates.
+
+This capability starts with a client built from this implementation. Clients
+that only open DMG/EXE installers need to install this version once before later
+releases can update automatically. A release without the required update feed
+or matching payload disables the action with an explanation.
+
+Changes to this flow require a real old-version-to-new-version install test on
+macOS arm64, macOS x64 (including Rosetta), and Windows x64. Unit and packaging
+tests alone do not establish that signing, elevation, replacement and relaunch
+work on those systems.
 
 ## Required GitHub Secrets
 
