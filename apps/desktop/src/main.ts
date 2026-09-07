@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { MacUpdater, NsisUpdater } from "electron-updater";
 import { createUpdateController } from "./updates";
+import { createUpdateNetwork } from "./updateNetwork";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -192,22 +193,24 @@ class RuntimeManager {
     return this.info;
   }
 
-  async stop(strict = false): Promise<void> {
+  async stop(): Promise<void> {
     const failures: unknown[] = [];
     this.stopping = true;
     await this.gatewayStopPromise?.catch(() => undefined);
-    this.serverProcess = null;
-    this.gatewayProcess = null;
-    this.gatewayStartPromise = null;
     for (const proc of [...this.processes].reverse()) {
       this.expectedExits.add(proc.child);
-      await killProcessTree(proc.child).catch((error) => {
+      await killProcessTree(proc.child).then(() => {
+        const index = this.processes.indexOf(proc);
+        if (index >= 0) this.processes.splice(index, 1);
+      }).catch((error) => {
         failures.push(error);
         this.log(`Failed to stop ${proc.name}: ${String(error)}`);
       });
     }
-    if (strict && failures.length) throw new Error("Failed to stop desktop runtime before installation");
-    this.processes.length = 0;
+    if (failures.length) throw new Error("Failed to stop desktop runtime; process records retained for recovery");
+    this.serverProcess = null;
+    this.gatewayProcess = null;
+    this.gatewayStartPromise = null;
     this.log("PilotDeck Desktop runtime stopped");
     this.logStream?.end();
     this.logStream = null;
@@ -267,8 +270,7 @@ class RuntimeManager {
     child.stdout?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
     child.on("exit", (code, signal) => {
-      const index = this.processes.findIndex((process) => process.child === child);
-      if (index >= 0) this.processes.splice(index, 1);
+      // Retain the group record until stop() confirms all descendants exited.
       this.log(`[${name}] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
       if (this.expectedExits.delete(child)) return;
       if (name === "gateway" && this.gatewayProcess === child) {
@@ -306,9 +308,9 @@ class RuntimeManager {
     if (runtimeMessage.type === "pilotdeck:configuration-state" && runtimeMessage.configuration) {
       this.configurationState = runtimeMessage.configuration;
       if (runtimeMessage.configuration.state === "ready") {
-        void this.startGateway();
+        void this.startGateway().catch(error => this.reportGatewayError(error));
       } else {
-        void this.stopGateway();
+        void this.stopGateway().catch(error => this.reportGatewayError(error));
         publishRuntimeStatus({
           phase: "awaiting_configuration",
           message: runtimeMessage.configuration.state === "invalid"
@@ -320,7 +322,7 @@ class RuntimeManager {
       return;
     }
     if (runtimeMessage.type === "pilotdeck:retry-gateway" && this.configurationState?.state === "ready") {
-      void this.stopGateway().then(() => this.startGateway());
+      void this.stopGateway().then(() => this.startGateway()).catch(error => this.reportGatewayError(error));
     }
   }
 
@@ -339,7 +341,7 @@ class RuntimeManager {
         && this.gatewayState.state === "stopped"
         && !this.gatewayProcess
       ) {
-        void this.startGateway();
+        void this.startGateway().catch(error => this.reportGatewayError(error));
       }
     });
     return this.gatewayStartPromise;
@@ -356,6 +358,13 @@ class RuntimeManager {
 
     let gateway: ChildProcess | null = null;
     try {
+      // An exited gateway may still own descendants. Clear that group before
+      // starting a replacement, just as we do before installing an update.
+      for (const proc of [...this.processes].filter(proc => proc.name === "gateway")) {
+        this.expectedExits.add(proc.child);
+        await this.stopManagedProcess(proc.child);
+      }
+      if (this.stopping || this.configurationState?.state !== "ready") return;
       gateway = this.spawnRuntime(
         "gateway",
         this.gatewayCommand(),
@@ -381,9 +390,11 @@ class RuntimeManager {
     } catch (error) {
       if (gateway && this.gatewayProcess !== gateway) return;
       if (gateway && this.gatewayProcess === gateway) {
-        this.gatewayProcess = null;
         this.expectedExits.add(gateway);
-        await killProcessTree(gateway).catch(() => undefined);
+        try {
+          await this.stopManagedProcess(gateway);
+          this.gatewayProcess = null;
+        } catch (stopError) { error = stopError; }
       }
       const detail = error instanceof Error ? error.message : String(error);
       this.log(`Gateway failed to start: ${detail}`);
@@ -400,17 +411,29 @@ class RuntimeManager {
   private async stopGateway(): Promise<void> {
     if (this.gatewayStopPromise) return this.gatewayStopPromise;
     const gateway = this.gatewayProcess;
-    this.gatewayProcess = null;
     this.gatewayStopPromise = (async () => {
       if (gateway) {
         this.expectedExits.add(gateway);
-        await killProcessTree(gateway).catch(() => undefined);
+        await this.stopManagedProcess(gateway);
+        this.gatewayProcess = null;
       }
       this.setGatewayState({ state: "stopped" });
     })().finally(() => {
       this.gatewayStopPromise = null;
     });
     return this.gatewayStopPromise;
+  }
+
+  private reportGatewayError(error: unknown): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.log(`Gateway operation failed: ${detail}`);
+    this.setGatewayState({ state: "error", error: detail });
+  }
+
+  private async stopManagedProcess(child: ChildProcess): Promise<void> {
+    await killProcessTree(child);
+    const index = this.processes.findIndex(proc => proc.child === child);
+    if (index >= 0) this.processes.splice(index, 1);
   }
 
   private setGatewayState(state: GatewayRuntimeState): void {
@@ -583,11 +606,10 @@ async function startRuntimeAndLoad(): Promise<void> {
 
 async function retryRuntime(): Promise<void> {
   const currentRuntime = runtime;
+  await runtimeStartPromise?.catch(() => undefined);
+  if (currentRuntime) await currentRuntime.stop();
   runtime = null;
   runtimeStartPromise = null;
-  if (currentRuntime) {
-    await currentRuntime.stop().catch(() => undefined);
-  }
   if (!mainWindow || mainWindow.isDestroyed()) {
     await createOrShowWindow();
   } else {
@@ -964,46 +986,9 @@ function waitForPortOrProcessExit(
   });
 }
 
-function killProcessTree(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return Promise.resolve();
-  return new Promise((resolve) => {
-    let settled = false;
-    let forceTimer: NodeJS.Timeout | undefined;
-    let forceExitTimer: NodeJS.Timeout | undefined;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (forceTimer) clearTimeout(forceTimer);
-      if (forceExitTimer) clearTimeout(forceExitTimer);
-      resolve();
-    };
-    child.once("exit", finish);
-    if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-        stdio: "ignore",
-        windowsHide: true,
-      })
-        .once("exit", finish);
-      return;
-    }
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        child.kill("SIGTERM");
-      }
-    }
-    forceTimer = setTimeout(() => {
-      if (child.exitCode === null && child.pid) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
-      }
-      forceExitTimer = setTimeout(finish, 1000);
-    }, 3000);
-  });
+async function killProcessTree(child: ChildProcess): Promise<void> {
+  const { stopProcessTree } = require(path.join(resolveRuntimeRoot(), "ui/server/utils/processTree.js"));
+  await stopProcessTree(child);
 }
 
 let updateController: ReturnType<typeof createUpdateController> | null = null;
@@ -1014,16 +999,24 @@ function getUpdateController() {
   const releases = require(path.join(resolveRuntimeRoot(), "ui/server/services/releaseService.js"));
   const repository = releases.normalizeRepository(process.env.PILOTDECK_UPDATE_REPOSITORY || readBuildMetadata().repository || DEFAULT_UPDATE_REPOSITORY);
   const updater = process.platform === "darwin" ? new MacUpdater() : new NsisUpdater();
+  const network = createUpdateNetwork(updater.netSession, () => {
+    const configService = require(path.join(resolveRuntimeRoot(), "ui/server/services/pilotdeckConfig.js"));
+    const record = configService.readPilotDeckConfigFile();
+    if (record.parseError) throw new Error("Invalid PilotDeck proxy configuration");
+    return record.config.proxy;
+  });
+  updater.on("login", network.login);
   updateController = createUpdateController({
     updater, repository, platform: process.platform, arch: process.arch,
     version: app.getVersion(), packaged: app.isPackaged,
-    latestRelease: () => releases.getLatestRelease({ repository }),
+    prepareNetwork: network.prepare,
+    latestRelease: () => releases.getLatestRelease({ repository, fetchImpl: network.fetch }),
     compareVersions: releases.compareVersions,
     prepareToInstall: async () => {
       isQuitting = true;
       await runtimeStartPromise?.catch(() => undefined);
       const currentRuntime = runtime;
-      await currentRuntime?.stop(true);
+      await currentRuntime?.stop();
       runtime = null;
       runtimeStartPromise = null;
     },
@@ -1107,12 +1100,19 @@ app.on("activate", () => {
   }
 });
 
+let stoppingForQuit = false;
 app.on("before-quit", (event) => {
   isQuitting = true;
   if (!runtime) return;
   event.preventDefault();
+  if (stoppingForQuit) return;
+  stoppingForQuit = true;
   const currentRuntime = runtime;
-  runtime = null;
   // Continue the normal quit lifecycle, including updater listeners.
-  currentRuntime.stop().finally(() => app.quit());
+  currentRuntime.stop().then(() => { runtime = null; stoppingForQuit = false; app.quit(); }).catch((error) => {
+    stoppingForQuit = false;
+    runtime = currentRuntime;
+    isQuitting = false;
+    dialog.showErrorBox("PilotDeck could not stop", String(error));
+  });
 });

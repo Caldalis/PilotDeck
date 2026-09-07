@@ -57,6 +57,7 @@ describe("AboutSections web update status recovery", () => {
   beforeEach(() => {
     mockedFetch.mockReset();
     sessionStorage.clear();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
   });
 
   afterEach(() => {
@@ -112,7 +113,7 @@ describe("AboutSections web update status recovery", () => {
     expect(mockedFetch).toHaveBeenCalledWith("/api/update/restart", expect.objectContaining({ method: "POST" }));
     expect(mockedFetch).toHaveBeenCalledWith("/api/update/apply", {
       method: "POST",
-      body: JSON.stringify({ target: { tagName: "v2026.09.07", sourceSha: "a".repeat(40) } }),
+      body: JSON.stringify({ updateId: "11111111-1111-4111-8111-111111111111", target: { tagName: "v2026.09.07", sourceSha: "a".repeat(40) } }),
     });
   });
 
@@ -145,14 +146,68 @@ describe("AboutSections web update status recovery", () => {
   });
 
   it("resumes the one-click restart after reopening About", async () => {
-    sessionStorage.setItem("pilotdeck-web-update-restart", "1");
+    sessionStorage.setItem("pilotdeck-web-update-restart", "test-update");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("restarting")));
-    mockedFetch.mockResolvedValueOnce(responseJson({ lastUpdateResult: { success: true, needsRestart: true } }))
+    mockedFetch.mockResolvedValueOnce(responseJson({ lastUpdateResult: { success: true, needsRestart: true, updateId: "test-update" } }))
       .mockResolvedValueOnce(responseJson({ status: "accepted" }));
     renderAbout();
     expect(await screen.findByText("about.restartingTitle")).toBeTruthy();
     expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeNull();
     expect(mockedFetch).toHaveBeenCalledWith("/api/update/restart", expect.objectContaining({ method: "POST" }));
+  });
+
+  it.each(["truncated", "network", "gateway"])("recovers %s responses without losing automatic restart", async (kind) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("restarting")));
+    mockedFetch.mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: null }));
+    if (kind === "network") mockedFetch.mockRejectedValueOnce(new Error("disconnected"));
+    else if (kind === "gateway") mockedFetch.mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }));
+    else mockedFetch.mockResolvedValueOnce(new Response('{"stage":"progress","status":"running"}\n'));
+    mockedFetch.mockRejectedValueOnce(new Error("status offline"))
+      .mockResolvedValueOnce(responseJson({ updateInProgress: true, currentUpdateId: "11111111-1111-4111-8111-111111111111" }))
+      .mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: { success: true, needsRestart: true, updateId: "11111111-1111-4111-8111-111111111111" } }))
+      .mockResolvedValueOnce(responseJson({ status: "accepted" }));
+    renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
+    await flushEffects();
+    fireEvent.click(screen.getByRole("button", { name: "about.updateAndRestart" }));
+    await flushEffects();
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeTruthy();
+    for (let i = 0; i < 2; i++) {
+      await advancePollingInterval();
+      expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "about.updating" })).toBeTruthy();
+    }
+    await advancePollingInterval();
+    expect(mockedFetch).toHaveBeenCalledWith("/api/update/restart", expect.objectContaining({ method: "POST" }));
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeNull();
+  });
+
+  it("can start an update on HTTP deployments without crypto.randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: (bytes: Uint8Array) => bytes.fill(7) });
+    mockedFetch.mockResolvedValueOnce(responseJson({ updateInProgress: false, lastUpdateResult: null }))
+      .mockRejectedValueOnce(new Error("disconnected"));
+    renderAbout({ hasUpdate: true, canUpdate: true, latestVersion: "v2026.09.07", latestSourceSha: "a".repeat(40) });
+    await flushEffects(); fireEvent.click(screen.getByRole("button", { name: "about.updateAndRestart" })); await flushEffects();
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBe("07".repeat(16));
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restart for a stale task result after reconnecting", async () => {
+    sessionStorage.setItem("pilotdeck-web-update-restart", "new-update");
+    mockedFetch.mockResolvedValue(responseJson({ updateInProgress: false, lastUpdateResult: { updateId: "old-update", success: true, needsRestart: true } }));
+    renderAbout(); await flushEffects();
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBeNull();
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("about.restartingTitle")).toBeNull();
+  });
+
+  it("preserves restart intent when reopening About while the status server is offline", async () => {
+    vi.useFakeTimers();
+    sessionStorage.setItem("pilotdeck-web-update-restart", "new-update");
+    mockedFetch.mockRejectedValue(new Error("offline"));
+    renderAbout(); await flushEffects(); await advancePollingInterval();
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("pilotdeck-web-update-restart")).toBe("new-update");
   });
 
   it("shows updating and polls when an update is already in progress", async () => {

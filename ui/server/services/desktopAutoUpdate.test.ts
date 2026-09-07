@@ -65,8 +65,26 @@ describe('automatic update lifecycle', () => {
   it('locks concurrent starts and cancellation during discovery never installs', async () => {
     let resolve!: (release: Release) => void;
     const { controller, updater, latestRelease } = setup({ latestRelease: vi.fn(() => new Promise(r => { resolve = r; })) });
-    controller.start(); controller.start(); controller.cancel(); resolve(releaseFor()); await controller.wait();
+    controller.start(); controller.start(); controller.cancel(); await vi.waitFor(() => expect(resolve).toBeTypeOf("function")); resolve(releaseFor()); await controller.wait();
     expect(controller.status().state).toBe('cancelled'); expect(updater.downloadUpdate).not.toHaveBeenCalled();
+  });
+  it('freezes proxy configuration while downloading, including concurrent checks', async () => {
+    const prepareNetwork = vi.fn();
+    const { controller, updater } = setup({ prepareNetwork });
+    let resolve!: (files: string[]) => void;
+    updater.downloadUpdate.mockImplementation(() => new Promise(r => { resolve = r; }));
+    controller.start(); await vi.waitFor(() => expect(controller.status().state).toBe('downloading'));
+    await controller.check(); await controller.check();
+    expect(prepareNetwork).toHaveBeenCalledTimes(1);
+    controller.cancel(); resolve(['/tmp/file']); await controller.wait();
+    await controller.check();
+    expect(prepareNetwork).toHaveBeenCalledTimes(2);
+  });
+  it('does not discover or download when proxy initialization fails', async () => {
+    const { controller, updater, latestRelease } = setup({ prepareNetwork: async () => { throw new Error('proxy failed'); } });
+    expect(await controller.check()).toMatchObject({ checkUnavailable: true, reason: 'checkFailed' });
+    controller.start(); await controller.wait();
+    expect(latestRelease).not.toHaveBeenCalled(); expect(updater.downloadUpdate).not.toHaveBeenCalled();
   });
   it('cancels download through the updater token and never stops services', async () => {
     const { controller, updater, cancel, prepareToInstall } = setup();

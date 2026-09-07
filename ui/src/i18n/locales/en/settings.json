@@ -167,6 +167,8 @@
         "inProgress": "An update is in progress. Wait for it to finish.",
         "restartRequired": "The new release is prepared. Restart the service to apply it.",
         "workspaceChanged": "The checkout changed during the update. Updating stopped; inspect it manually.",
+        "buildTimedOut": "Release preparation timed out and was stopped. Check server logs and retry.",
+        "processStopFailed": "Could not confirm the build processes stopped. The update lock and temporary files were retained. Stop the build processes before cleaning them up on the server.",
         "buildFailed": "Release preparation failed; the original deployment was not switched. Check server logs and retry.",
         "applyFailed": "Updating failed. Check server logs and reopen settings to confirm the current state.",
         "manualRecovery": "Update recovery failed. Restore the backups identified in server logs before restarting manually.",

@@ -30,7 +30,9 @@ type VersionStatus =
 
 type WebUpdateStatusPayload = {
   updateInProgress?: boolean;
+  currentUpdateId?: string | null;
   lastUpdateResult?: {
+    updateId?: string;
     success?: boolean;
     alreadyUpToDate?: boolean;
     needsRestart?: boolean;
@@ -69,8 +71,9 @@ function WebAboutSections({
   const [localUpdateResult, setLocalUpdateResult] = useState<LocalUpdateResult>(null);
   const [restartStatus, setRestartStatus] = useState<RestartModalStatus | null>(null);
   const webStatusPollRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
   const hasObservedWebUpdateRef = useRef(false);
-  const autoRestartRef = useRef(sessionStorage.getItem("pilotdeck-web-update-restart") === "1");
+  const autoRestartRef = useRef(sessionStorage.getItem("pilotdeck-web-update-restart"));
 
   const stopWebStatusPolling = useCallback(() => {
     if (webStatusPollRef.current !== null) {
@@ -80,7 +83,13 @@ function WebAboutSections({
   }, []);
 
   const applyWebUpdateStatus = useCallback((payload: WebUpdateStatusPayload): WebUpdatePollDecision => {
-    const result = payload.lastUpdateResult;
+    const intent = autoRestartRef.current;
+    const result = !intent || payload.lastUpdateResult?.updateId === intent ? payload.lastUpdateResult : null;
+    if (payload.updateInProgress) {
+      hasObservedWebUpdateRef.current = true;
+      setWebUpdating(true);
+      return "continue";
+    }
     if (result?.needsRestart) {
       hasObservedWebUpdateRef.current = false;
       setWebUpdating(false);
@@ -100,10 +109,11 @@ function WebAboutSections({
       setWebFailureReason(result.reason || "applyFailed");
       return "stop";
     }
-    if (payload.updateInProgress) {
-      hasObservedWebUpdateRef.current = true;
-      setWebUpdating(true);
-      return "continue";
+    if (intent) {
+      // A successful idle status with no matching result confirms the request
+      // was not retained (for example, the server restarted). Allow a retry.
+      setWebFailureReason("applyFailed");
+      setLocalUpdateResult("failed");
     }
     hasObservedWebUpdateRef.current = false;
     setWebUpdating(false);
@@ -111,18 +121,22 @@ function WebAboutSections({
   }, []);
 
   const refreshWebUpdateStatus = useCallback(async (): Promise<WebUpdatePollDecision> => {
+    const intent = autoRestartRef.current;
     try {
       const res = await authenticatedFetch("/api/update/status");
-      if (!res.ok) return hasObservedWebUpdateRef.current ? "continue" : "stop";
+      // Ignore an idle response from the mount request if Update was clicked
+      // while it was in flight.
+      if (!res.ok) return hasObservedWebUpdateRef.current || autoRestartRef.current ? "continue" : "stop";
       const payload = await res.json() as WebUpdateStatusPayload;
+      if (intent !== autoRestartRef.current || !mountedRef.current) return "stop";
       return applyWebUpdateStatus(payload);
     } catch {
-      return hasObservedWebUpdateRef.current ? "continue" : "stop";
+      return hasObservedWebUpdateRef.current || autoRestartRef.current ? "continue" : "stop";
     }
   }, [applyWebUpdateStatus]);
 
   const startWebStatusPolling = useCallback(() => {
-    if (webStatusPollRef.current !== null) return;
+    if (!mountedRef.current || webStatusPollRef.current !== null) return;
     webStatusPollRef.current = window.setInterval(() => {
       void refreshWebUpdateStatus().then((decision) => {
         if (decision === "stop") stopWebStatusPolling();
@@ -132,12 +146,14 @@ function WebAboutSections({
 
   useEffect(() => {
     let active = true;
+    mountedRef.current = true;
     void refreshWebUpdateStatus().then((decision) => {
       if (active && decision === "continue") startWebStatusPolling();
     });
 
     return () => {
       active = false;
+      mountedRef.current = false;
       stopWebStatusPolling();
     };
   }, [refreshWebUpdateStatus, startWebStatusPolling, stopWebStatusPolling]);
@@ -156,24 +172,31 @@ function WebAboutSections({
   const handleWebUpdate = async () => {
     if (versionInfo.canUpdate !== true || checkingVersion || versionInfo.checkUnavailable
         || !versionInfo.latestVersion || !versionInfo.latestSourceSha) return;
-    autoRestartRef.current = true;
-    sessionStorage.setItem("pilotdeck-web-update-restart", "1");
+    // randomUUID is unavailable on ordinary HTTP LAN deployments.
+    const updateId = typeof crypto.randomUUID === "function" ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, "0")).join("");
+    autoRestartRef.current = updateId;
+    sessionStorage.setItem("pilotdeck-web-update-restart", updateId);
     setWebFailureReason(null);
     hasObservedWebUpdateRef.current = true;
     setWebUpdating(true);
     setLocalUpdateResult(null);
+    let confirmedFailure: string | null = null;
     try {
       const res = await authenticatedFetch("/api/update/apply", {
         method: "POST",
-        body: JSON.stringify({ target: { tagName: versionInfo.latestVersion, sourceSha: versionInfo.latestSourceSha } }),
+        body: JSON.stringify({ updateId, target: { tagName: versionInfo.latestVersion, sourceSha: versionInfo.latestSourceSha } }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.reason || "applyFailed");
+        // Proxy-generated errors are not authoritative task results.
+        if (typeof payload.reason === "string") confirmedFailure = payload.reason;
+        throw new Error(confirmedFailure || "applyFailed");
       }
       const terminalStatus = await readWebUpdateTerminalStatus(res.body, (reason) => {
+        confirmedFailure = reason;
         setWebFailureReason(reason);
-        setWebRefused(reason !== "buildFailed" && reason !== "applyFailed");
+        setWebRefused(!["buildFailed", "buildTimedOut", "applyFailed"].includes(reason));
       });
       setLocalUpdateResult(
         terminalStatus === "error"
@@ -184,16 +207,20 @@ function WebAboutSections({
       );
       hasObservedWebUpdateRef.current = false;
       stopWebStatusPolling();
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "applyFailed";
-      setWebFailureReason(reason);
-      setWebRefused(reason !== "buildFailed" && reason !== "applyFailed");
+    } catch {
+      if (!confirmedFailure) {
+        // The server owns the job. Losing its stream says nothing about whether
+        // file replacement succeeded; preserve restart intent and recover status.
+        startWebStatusPolling();
+        return;
+      }
+      setWebFailureReason(confirmedFailure);
+      setWebRefused(!["buildFailed", "buildTimedOut", "applyFailed"].includes(confirmedFailure));
       hasObservedWebUpdateRef.current = false;
       stopWebStatusPolling();
       setLocalUpdateResult("failed");
-    } finally {
-      setWebUpdating(false);
     }
+    setWebUpdating(false);
   };
 
   const handleWebRestart = () => {
@@ -222,11 +249,11 @@ function WebAboutSections({
   useEffect(() => {
     if (!autoRestartRef.current) return;
     if (localUpdateResult === "webUpdated") {
-      autoRestartRef.current = false;
+      autoRestartRef.current = null;
       sessionStorage.removeItem("pilotdeck-web-update-restart");
       handleWebRestart();
     } else if (localUpdateResult === "failed" || localUpdateResult === "webUpToDate") {
-      autoRestartRef.current = false;
+      autoRestartRef.current = null;
       sessionStorage.removeItem("pilotdeck-web-update-restart");
     }
   }, [localUpdateResult]);

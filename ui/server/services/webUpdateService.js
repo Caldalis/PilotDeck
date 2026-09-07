@@ -1,10 +1,13 @@
-import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { COMMIT_SHA, getLatestRelease, RELEASE_REPOSITORY, RELEASE_TAG } from './releaseService.js';
+
+import { runManagedCommand } from '../utils/processTree.js';
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -45,6 +48,7 @@ export function createWebUpdateService({
   let updateInProgress = false;
   let ownsUpdateLock = false;
   let lastUpdateResult = null;
+  let currentUpdateId = null;
   const git = async (args, cwd = projectRoot) => {
     const { stdout } = await exec('git', args, {
       cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 10 * 1024 * 1024,
@@ -114,11 +118,13 @@ export function createWebUpdateService({
     }
   }
 
-  async function apply(target, progress = () => {}) {
+  async function apply(target, progress = () => {}, updateId = randomUUID()) {
     if (updateInProgress) throw updateError('inProgress');
     if (!RELEASE_TAG.test(target?.tagName || '') || !COMMIT_SHA.test(target?.sourceSha || '')) throw updateError('targetChanged');
     if (lastUpdateResult?.needsRestart) throw updateError('restartRequired');
+    if (typeof updateId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(updateId)) throw updateError('invalidUpdateId');
     updateInProgress = true;
+    currentUpdateId = updateId;
     lastUpdateResult = null;
     const report = (message) => { log(message); progress(message); };
     let staging;
@@ -184,40 +190,31 @@ export function createWebUpdateService({
         }
         throw error;
       }
-      lastUpdateResult = { success: true, needsRestart: true, target };
+      lastUpdateResult = { success: true, needsRestart: true, target, updateId };
       return lastUpdateResult;
     } catch (error) {
+      if (error.reason === 'processStopFailed') {
+        preserveBackup = true;
+        log(`Build termination unconfirmed. Retained staging: ${staging}; lock: ${lock}`);
+      }
       if (staging) log(error.message);
-      lastUpdateResult = staging ? { success: false, error: error.message, reason: error.reason || 'applyFailed' } : null;
+      lastUpdateResult = { success: false, error: error.message, reason: error.reason || 'applyFailed', target, updateId };
       throw error;
     } finally {
       if (staging && !preserveBackup) await rm(staging, { recursive: true, force: true }).catch(() => {});
       if (locked && !preserveBackup) await rm(lock, { recursive: true, force: true }).catch(() => {});
       ownsUpdateLock = false;
       updateInProgress = false;
+      currentUpdateId = null;
     }
   }
 
-  return { check, apply, status: () => ({ updateInProgress, lastUpdateResult }) };
+  return { check, apply, status: () => ({ updateInProgress, currentUpdateId, lastUpdateResult }) };
 }
 
 async function buildStagedWeb(root, progress, env) {
   const buildEnv = { ...env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${env.PATH || ''}`, HUSKY: '0' };
-  const run = (command, args) => new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: root, env: buildEnv, stdio: ['ignore', 'pipe', 'pipe'],
-      shell: process.platform === 'win32', windowsHide: true,
-    });
-    const timer = setTimeout(() => child.kill(), 15 * 60 * 1000);
-    child.stdout.on('data', (data) => progress(data.toString()));
-    child.stderr.on('data', (data) => progress(data.toString()));
-    child.on('error', (error) => { clearTimeout(timer); reject(error); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(updateError('buildFailed', `${command} ${args.join(' ')} failed (${code}).`));
-    });
-  });
+  const run = (command, args) => runManagedCommand(command, args, { cwd: root, env: buildEnv, progress });
   await run('pnpm', ['install', '--frozen-lockfile', '--filter', 'pilotdeck', '--filter', 'pilotdeck-ui']);
   await run('pnpm', ['run', 'build:web']);
 }

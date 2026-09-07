@@ -103,3 +103,27 @@ test("manual revisions are validated and existing tags cannot be reused", (t) =>
   assert.notEqual(detect({ PILOTDECK_RELEASE_DATE: "2026-02-30" }).status, 0);
   assert.equal(detect({ REQUESTED_REVISION: "2" }).output.revision, "2");
 });
+
+test("automatic release advances past manual gaps instead of filling them", (t) => {
+  const { git, commit, detect } = repository(t);
+  git("tag", "v2026.09.07");
+  git("tag", "v2026.09.07-r3");
+  commit("ui/app.js", "new code");
+  const result = detect();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.output.should_build, "true");
+  assert.equal(result.output.revision, "3"); // v2026.09.07-r4
+  assert.notEqual(detect({ REQUESTED_REVISION: "1" }).status, 0);
+  assert.equal(detect({ REQUESTED_REVISION: "4" }).status, 0);
+});
+
+test("neither automatic nor forced release can go backwards in date", (t) => {
+  const { git, commit, detect } = repository(t);
+  git("tag", "v2026.09.08");
+  commit("ui/app.js", "new code");
+  for (const env of [{}, { FORCE_RELEASE: "true", REQUESTED_REVISION: "100" }]) {
+    const result = detect(env);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must be newer than v2026.09.08/);
+  }
+});

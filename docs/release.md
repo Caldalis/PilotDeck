@@ -80,7 +80,9 @@ repository (or `PILOTDECK_UPDATE_REPOSITORY` override). It validates `release.js
 against the release tag, numeric version, repository, source commit format, and
 published installer names and sizes. The newest release is compared numerically
 with Electron's `app.getVersion()`: only a higher version offers an update.
-Equal or older releases never trigger a downgrade. Historical `desktop-v` tags
+Equal or older releases never trigger a downgrade. Release allocation uses the
+largest existing revision for the date plus one, including manually skipped
+revisions, and rejects a manually requested version below any published version. Historical `desktop-v` tags
 and filename-based version guessing are not supported.
 
 Automatic update selection requires an exact platform and running-client architecture:
@@ -105,7 +107,18 @@ Electron-updater verifies the downloaded payload; the client also verifies its
 SHA-256 before stopping the gateway and Web server. Finally it invokes the
 updater to install and relaunch the application. macOS performs native signature
 verification; Windows may show an administrator approval prompt because our
-NSIS installer is per-machine.
+NSIS installer is per-machine. Both the interactive installer and silent
+`--force-run` updates launch via the existing `explorer.exe` workaround.
+Before installation, runtime shutdown confirms that managed descendants exited;
+a failed stop aborts installation and retains process records for recovery.
+
+Release checks, manifests, update feeds and payload downloads share the
+`electron-updater` network session. It reads the user's `proxy.url` and
+`proxy.noProxy`; proxy environment variables (`PILOTDECK_PROXY`, `https_proxy`,
+`HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, in that order) take precedence.
+Loopback traffic always bypasses the proxy for the local Mac updater. Proxy
+settings refresh before checking and remain fixed during an active update.
+Without an application or environment proxy, Electron uses system proxy settings.
 
 The updater is a production dependency inside `app.asar`. CI loads it and its
 transitive dependencies using the packaged Electron executable, and checks that
@@ -187,3 +200,22 @@ rerun the failed workflow. A release is created only after both macOS DMGs and
 the Windows installer are downloaded and verified. For a deliberate additional
 release on the same Shanghai date, leave revision empty to select the next
 available `-rN` tag automatically.
+
+## Update regression smoke checks
+
+After compiling the desktop main process, run the real Electron networking
+check with the installed development Electron binary:
+
+```sh
+pnpm --filter pilotdeck-desktop compile
+pnpm --filter pilotdeck-desktop exec electron scripts/verify-update-network.cjs
+node apps/desktop/scripts/verify-installer.cjs
+```
+
+The network check requires OpenSSL and uses a temporary local HTTPS origin and
+proxy, without contacting GitHub or installing anything. It covers both config
+and environment proxy discovery/download paths, proxy authentication, and loopback bypass. The installer
+check downloads the builder's NSIS toolchain if uncached, compiles the launch
+paths using the installed templates, and checks that both use `explorer.exe`.
+It does not run the generated EXE. Windows elevation/relaunch and signed macOS
+cross-version replacement still require real platform upgrade tests.

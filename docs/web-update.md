@@ -60,9 +60,21 @@ If restoring artifacts fails, backups and the update lock remain under `.git`;
 the server log identifies the backup directory for manual recovery. Do not remove
 an update lock while another updater is running.
 
+Each install/build command has a 15-minute limit. On timeout, the updater stops
+its process tree, escalates to a forced stop, and confirms termination before
+removing temporary files and releasing the lock. If termination cannot be
+confirmed, the request returns `processStopFailed` and retains both the staging
+directory and `.git/pilotdeck-update.lock`. Stop the remaining build processes
+before removing these retained files and retrying; the live deployment is not
+switched in this case.
+
 Preparation progress and failures are logged with `[web-update]`. In-process
 status allows the About page to recover an active update or pending restart
 when reopened. A pending one-click restart is remembered for the current browser
-session; reopening About resumes it. Other pending updates retain the explicit
+session, associated with the specific update ID; reopening About resumes it.
+A broken progress stream or temporary network failure preserves this intent
+and polls `/api/update/status` until the backend confirms the outcome. A
+confirmed failure clears the intent, and results from other update IDs cannot
+trigger an automatic restart. Other pending updates retain the explicit
 restart action. `scripts/update.sh` uses the same eligibility checks and staged
 update implementation; it requires a manual service restart on completion.

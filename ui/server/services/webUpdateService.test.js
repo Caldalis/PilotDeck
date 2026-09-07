@@ -146,6 +146,20 @@ describe('staged web updates', () => {
     for (const file of ['node_modules/marker', 'ui/dist/index.js', 'dist/index.js']) expect(readFileSync(path.join(f.root, file), 'utf8')).toBe('old');
     expect(service.status()).toMatchObject({ updateInProgress: false, lastUpdateResult: { success: false } });
   });
+  it.each(['buildTimedOut', 'processStopFailed'])('settles %s with correlated status and safe cleanup', async (reason) => {
+    const f = fixture();
+    const service = f.create({ build: async () => { throw Object.assign(new Error(reason), { reason }); } });
+    await expect(service.apply(f.target, () => {}, 'test-update')).rejects.toMatchObject({ reason });
+    expect(service.status()).toMatchObject({ updateInProgress: false, currentUpdateId: null,
+      lastUpdateResult: { success: false, reason, target: f.target, updateId: 'test-update' } });
+    expect(git(f.root, 'rev-parse', 'HEAD')).toBe(f.oldSha);
+    const leftovers = readdirSync(path.join(f.root, '.git')).filter(name => name.startsWith('pilotdeck-update'));
+    if (reason === 'processStopFailed') {
+      expect(leftovers).toContain('pilotdeck-update.lock');
+      expect(leftovers.length).toBe(2);
+      expect(await service.check()).toMatchObject({ canUpdate: false, reason: 'lockBusy' });
+    } else expect(leftovers).toEqual([]);
+  });
   it('stops when the user edits the checkout during a build', async () => {
     const f = fixture();
     const service = f.create({ build: async (source) => { await f.build(source); write(f.root, 'app.txt', 'user edit'); } });

@@ -50,6 +50,7 @@ export function createUpdateController(options: {
   version: string;
   packaged: boolean;
   latestRelease: () => Promise<Release>;
+  prepareNetwork?: () => Promise<void>;
   compareVersions: (a: string, b: string) => number;
   prepareToInstall: () => Promise<void>;
   recoverRuntime: () => Promise<void>;
@@ -88,9 +89,10 @@ export function createUpdateController(options: {
     if (state.state === "installing") void recover().catch(() => {});
   });
 
-  async function check() {
+  async function performCheck() {
     try {
       if (!options.packaged) throw new Error("development");
+      await options.prepareNetwork?.();
       const latest = await options.latestRelease();
       const hasUpdate = options.compareVersions(options.version, latest.version) < 0;
       const canDownload = hasUpdate && Boolean(selectUpdateAssets(latest, options.platform, options.arch));
@@ -100,6 +102,16 @@ export function createUpdateController(options: {
       return { current: { version: options.version }, latest: null, hasUpdate: false, canDownload: false,
         checkUnavailable: true, reason: !options.packaged ? "development" : "checkFailed" };
     }
+  }
+
+  type CheckResult = Awaited<ReturnType<typeof performCheck>>;
+  let lastCheck: CheckResult | null = null;
+  let checking: Promise<CheckResult> | null = null;
+  function check(): Promise<CheckResult> {
+    if (checking) return checking;
+    if (busyStates.has(state.state) && lastCheck) return Promise.resolve(lastCheck);
+    checking = performCheck().then(result => { lastCheck = result; return result; }).finally(() => { checking = null; });
+    return checking;
   }
 
   async function run() {
@@ -140,6 +152,7 @@ export function createUpdateController(options: {
     check, status,
     start() {
       if (task || busyStates.has(state.state) || installFailed) return status();
+      lastCheck = null;
       cancelled = false;
       cancellationToken = undefined;
       state = { state: "checking", progress: 0 };

@@ -28,7 +28,7 @@ describe('web update API', () => {
     const result = await request({ apply }, '/apply', { target });
     expect(result.status).toBe(409);
     expect(JSON.parse(result.text)).toMatchObject({ reason: 'localChanges' });
-    expect(apply).toHaveBeenCalledWith(target, expect.any(Function));
+    expect(apply).toHaveBeenCalledWith(target, expect.any(Function), undefined);
   });
   it('streams an explicit error terminal state after preparation fails', async () => {
     const apply = async (_target, progress) => { progress('Building'); throw Object.assign(new Error('Build failed'), { reason: 'buildFailed' }); };

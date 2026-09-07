@@ -16,7 +16,7 @@ export function createWebUpdateRouter(service = createWebUpdateService()) {
       res.write(JSON.stringify({ ...message, timestamp: Date.now() }) + '\n');
     };
     try {
-      await service.apply(req.body?.target, (message) => send({ stage: 'progress', status: 'running', message }));
+      await service.apply(req.body?.target, (message) => send({ stage: 'progress', status: 'running', message }), req.body?.updateId);
       send({ stage: 'complete', status: 'success', message: 'Update prepared. Restart to apply.' });
       res.end();
     } catch (error) {
