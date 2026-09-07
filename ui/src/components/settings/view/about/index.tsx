@@ -5,21 +5,17 @@ import { authenticatedFetch } from "../../../../utils/api";
 import { restartAndReload, type RestartUiStatus } from "../../../../utils/restartUi";
 import { cn } from "../../../../lib/utils";
 import type { DesktopVersionCheckResult } from "../../Settings";
+import DesktopAboutSections from "./DesktopAboutSections";
 import { SettingsCard } from "../../shared/view";
-import {
-  launchDesktopInstaller,
-  readWebUpdateTerminalStatus,
-} from "./updateActions";
+import { readWebUpdateTerminalStatus } from "./updateActions";
 
-type AboutSectionsProps = {
+export type AboutSectionsProps = {
   title: string;
   versionInfo: DesktopVersionCheckResult;
   checkingVersion: boolean;
 };
 
 type LocalUpdateResult =
-  | "downloaded"
-  | "installerLaunched"
   | "failed"
   | "webUpdated"
   | "webUpToDate"
@@ -27,7 +23,6 @@ type LocalUpdateResult =
 type VersionStatus =
   | "checking"
   | "updateAvailable"
-  | "installerLaunched"
   | "upToDate"
   | "unavailable"
   | "manualUpdate"
@@ -57,23 +52,24 @@ function formatDateTime(value: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export default function AboutSections({
+export default function AboutSections(props: AboutSectionsProps) {
+  return props.versionInfo.mode === "desktop" ? <DesktopAboutSections {...props} /> : <WebAboutSections {...props} />;
+}
+
+function WebAboutSections({
   title,
   versionInfo,
   checkingVersion,
 }: AboutSectionsProps) {
   const { t } = useTranslation("settings");
-  const [downloading, setDownloading] = useState(false);
   const [webUpdating, setWebUpdating] = useState(false);
   const [webFailureReason, setWebFailureReason] = useState<string | null>(null);
   const [webRefused, setWebRefused] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [localUpdateResult, setLocalUpdateResult] = useState<LocalUpdateResult>(null);
-  const [downloadedFilePath, setDownloadedFilePath] = useState<string | null>(null);
   const [restartStatus, setRestartStatus] = useState<RestartModalStatus | null>(null);
   const webStatusPollRef = useRef<number | null>(null);
   const hasObservedWebUpdateRef = useRef(false);
-  const isDesktop = versionInfo.mode === "desktop";
 
   const stopWebStatusPolling = useCallback(() => {
     if (webStatusPollRef.current !== null) {
@@ -114,7 +110,6 @@ export default function AboutSections({
   }, []);
 
   const refreshWebUpdateStatus = useCallback(async (): Promise<WebUpdatePollDecision> => {
-    if (isDesktop) return "stop";
     try {
       const res = await authenticatedFetch("/api/update/status");
       if (!res.ok) return hasObservedWebUpdateRef.current ? "continue" : "stop";
@@ -123,7 +118,7 @@ export default function AboutSections({
     } catch {
       return hasObservedWebUpdateRef.current ? "continue" : "stop";
     }
-  }, [applyWebUpdateStatus, isDesktop]);
+  }, [applyWebUpdateStatus]);
 
   const startWebStatusPolling = useCallback(() => {
     if (webStatusPollRef.current !== null) return;
@@ -135,11 +130,6 @@ export default function AboutSections({
   }, [refreshWebUpdateStatus, stopWebStatusPolling]);
 
   useEffect(() => {
-    if (isDesktop) {
-      stopWebStatusPolling();
-      return;
-    }
-
     let active = true;
     void refreshWebUpdateStatus().then((decision) => {
       if (active && decision === "continue") startWebStatusPolling();
@@ -149,63 +139,18 @@ export default function AboutSections({
       active = false;
       stopWebStatusPolling();
     };
-  }, [isDesktop, refreshWebUpdateStatus, startWebStatusPolling, stopWebStatusPolling]);
+  }, [refreshWebUpdateStatus, startWebStatusPolling, stopWebStatusPolling]);
 
   const status: VersionStatus = useMemo(() => {
     if (checkingVersion || webUpdating) return "checking";
-    if (localUpdateResult === "installerLaunched") return "installerLaunched";
     if (localUpdateResult === "webUpdated") return "restartRequired";
     if (localUpdateResult === "webUpToDate") return "upToDate";
     if (localUpdateResult === "failed") return "unavailable";
     if (versionInfo.checkUnavailable) return "unavailable";
-    if (!isDesktop && versionInfo.webReason && versionInfo.webReason !== "upToDate") return "manualUpdate";
+    if (versionInfo.webReason && versionInfo.webReason !== "upToDate") return "manualUpdate";
     if (versionInfo.hasUpdate) return "updateAvailable";
     return "upToDate";
-  }, [checkingVersion, isDesktop, localUpdateResult, versionInfo.checkUnavailable, versionInfo.hasUpdate, versionInfo.webReason, webUpdating]);
-
-  const handleDownloadAndInstall = async () => {
-    setDownloading(true);
-    setLocalUpdateResult(null);
-    setDownloadedFilePath(null);
-    try {
-      const startRes = await authenticatedFetch("/api/update/desktop/download", {
-        method: "POST",
-        body: JSON.stringify({ force: true }),
-      });
-      if (!startRes.ok) {
-        throw new Error("Failed to start download");
-      }
-
-      let attempts = 0;
-      while (attempts < 300) {
-        attempts += 1;
-        const pollRes = await authenticatedFetch("/api/update/desktop/download/status");
-        if (!pollRes.ok) {
-          throw new Error("Failed to fetch download status");
-        }
-        const pollData = await pollRes.json();
-        const state = pollData?.download?.state;
-        if (state === "downloaded") {
-          setDownloadedFilePath(pollData?.download?.filePath ?? null);
-          setLocalUpdateResult("downloaded");
-          setDownloading(false);
-          return;
-        }
-        if (state === "failed" || state === "cancelled") {
-          setLocalUpdateResult("failed");
-          setDownloading(false);
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-
-      setLocalUpdateResult("failed");
-    } catch {
-      setLocalUpdateResult("failed");
-    } finally {
-      setDownloading(false);
-    }
-  };
+  }, [checkingVersion, localUpdateResult, versionInfo.checkUnavailable, versionInfo.hasUpdate, versionInfo.webReason, webUpdating]);
 
   const handleWebUpdate = async () => {
     if (versionInfo.canUpdate !== true || checkingVersion || versionInfo.checkUnavailable
@@ -248,18 +193,6 @@ export default function AboutSections({
     }
   };
 
-  const handleInstall = async () => {
-    setInstalling(true);
-    try {
-      await launchDesktopInstaller(downloadedFilePath);
-      setLocalUpdateResult("installerLaunched");
-    } catch {
-      setLocalUpdateResult("failed");
-    } finally {
-      setInstalling(false);
-    }
-  };
-
   const handleWebRestart = () => {
     setInstalling(true);
     stopWebStatusPolling();
@@ -283,18 +216,13 @@ export default function AboutSections({
     );
   };
 
-  const showDownloadButton =
-    isDesktop && status === "updateAvailable" && localUpdateResult !== "downloaded";
-  const showRestartInstallButton = isDesktop && localUpdateResult === "downloaded";
-  const showWebUpdateButton =
-    !isDesktop
-    && localUpdateResult !== "webUpdated";
-  const showWebRestartButton = !isDesktop && localUpdateResult === "webUpdated";
+  const showWebUpdateButton = localUpdateResult !== "webUpdated";
+  const showWebRestartButton = localUpdateResult === "webUpdated";
   const statusBadgeClass = cn(
     "inline-flex items-center rounded-md border px-2 py-0.5 text-sm font-medium leading-5",
     status === "updateAvailable"
       ? "border-blue-300 bg-blue-50 text-blue-700"
-      : status === "upToDate" || status === "installerLaunched"
+      : status === "upToDate"
         ? "border-emerald-300 bg-emerald-50 text-emerald-700"
         : (status === "checking" || status === "manualUpdate" || status === "restartRequired")
           ? "border-slate-300 bg-slate-50 text-slate-700"
@@ -331,18 +259,7 @@ export default function AboutSections({
             <span className="font-medium">{t("settingsPage.about.latestReleaseTime")}</span>
             <span className="ml-2">{formatDateTime(versionInfo.latestPublishedAt)}</span>
           </div>
-          {showDownloadButton ? (
-            <button
-              type="button"
-              onClick={handleDownloadAndInstall}
-              disabled={downloading || installing}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {downloading
-                ? t("settingsPage.about.downloadingAndInstalling")
-                : t("settingsPage.about.downloadAndInstall")}
-            </button>
-          ) : showWebUpdateButton ? (
+          {showWebUpdateButton ? (
             <button
               type="button"
               onClick={handleWebUpdate}
@@ -362,34 +279,21 @@ export default function AboutSections({
                 ? t("settingsPage.about.restartingAndInstalling")
                 : t("about.restartToApply")}
             </button>
-          ) : showRestartInstallButton ? (
-            <button
-              type="button"
-              onClick={handleInstall}
-              disabled={installing || downloading}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {installing
-                ? t("settingsPage.about.launchingInstaller")
-                : t("settingsPage.about.installUpdate")}
-            </button>
           ) : (
             <div />
           )}
         </div>
-        {!isDesktop && (
-          <div className="space-y-2 border-t border-border px-5 py-4 text-sm">
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
-              <span>{t("settingsPage.about.currentVersion")} {versionInfo.currentVersion}</span>
-              <span>{t("settingsPage.about.latestVersion")} {versionInfo.latestVersion || "-"}</span>
-            </div>
-            <p className="text-muted-foreground" role={webFailureReason ? "alert" : undefined}>
-              {t(`settingsPage.about.webUpdateReasons.${webFailureReason || (localUpdateResult === "webUpdated" ? "restartRequired" : versionInfo.webReason) || "standard"}`, {
-                defaultValue: t("settingsPage.about.webUpdateReasons.applyFailed"),
-              })}
-            </p>
+        <div className="space-y-2 border-t border-border px-5 py-4 text-sm">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
+            <span>{t("settingsPage.about.currentVersion")} {versionInfo.currentVersion}</span>
+            <span>{t("settingsPage.about.latestVersion")} {versionInfo.latestVersion || "-"}</span>
           </div>
-        )}
+          <p className="text-muted-foreground" role={webFailureReason ? "alert" : undefined}>
+            {t(`settingsPage.about.webUpdateReasons.${webFailureReason || (localUpdateResult === "webUpdated" ? "restartRequired" : versionInfo.webReason) || "standard"}`, {
+              defaultValue: t("settingsPage.about.webUpdateReasons.applyFailed"),
+            })}
+          </p>
+        </div>
       </SettingsCard>
 
       {restartStatus && (

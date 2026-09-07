@@ -117,6 +117,43 @@
       },
       "currentVersion": "Current version:",
       "latestVersion": "Latest version:",
+      "desktopUpdate": {
+        "download": "Download update",
+        "downloading": "Downloading…",
+        "cancel": "Cancel download",
+        "install": "Install update",
+        "installing": "Verifying and opening…",
+        "progress": "Download progress",
+        "installerVersion": "Installer version",
+        "status": {
+          "installerLaunched": "Installer opened",
+          "downloaded": "Downloaded",
+          "downloading": "Downloading",
+          "checking": "Checking",
+          "unavailable": "Unavailable",
+          "updateAvailable": "Update available",
+          "upToDate": "No update needed"
+        },
+        "reasons": {
+          "standard": "After downloading, click “Install update” to open the installer. Complete the system installation steps and restart the client.",
+          "downloaded": "The installer has been downloaded and verified. Click “Install update” to continue.",
+          "installerLaunched": "Complete the system installation steps, then restart the client. On macOS, drag the app into Applications and replace the existing version.",
+          "noCompatibleInstaller": "This release has no installer matching this system and client architecture. Updating is unavailable.",
+          "checkFailed": "Unable to check for updates. Reopen About later to retry.",
+          "invalidVersion": "The current client version could not be identified. Updating is unavailable.",
+          "notDesktop": "Client updates are unavailable in this runtime.",
+          "upToDate": "No update is needed. Automatic downgrades are disabled.",
+          "checksumMismatch": "Installer verification failed. Please download it again.",
+          "downloadFailed": "Download failed. Check your connection and retry.",
+          "cancelled": "Download cancelled. You can download again.",
+          "notVerified": "The installer is unverified or missing. Please download it again.",
+          "installFailed": "Unable to open the installer. Please retry.",
+          "cancelFailed": "Unable to cancel the download. Please retry.",
+          "statusFailed": "Unable to retrieve download status. Retrying…",
+          "busy": "An update operation is in progress. Please wait.",
+          "failed": "The operation failed. Please try again later."
+        }
+      },
       "webUpdateReasons": {
         "standard": "Self-update supports clean Git deployments on the official main branch and installs the latest published release.",
         "upToDate": "The running version matches the latest release.",

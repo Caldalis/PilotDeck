@@ -16,6 +16,8 @@ export type DesktopVersionCheckResult = {
   latestPublishedAt: string | null;
   buildTime: string | null;
   canUpdate?: boolean;
+  canDownload?: boolean;
+  desktopReason?: string | null;
   webReason?: string | null;
   latestSourceSha?: string | null;
 };
@@ -27,6 +29,8 @@ function normalizeDesktopVersionResult(payload: any): DesktopVersionCheckResult 
     checkUnavailable: Boolean(payload?.checkUnavailable),
     currentVersion: payload?.current?.version ?? "unknown",
     latestVersion: payload?.latest?.version ?? null,
+    canDownload: payload?.canDownload === true,
+    desktopReason: payload?.reason ?? null,
     latestPublishedAt: payload?.latest?.publishedAt ?? null,
     buildTime: payload?.current?.buildTime ?? null,
   };
@@ -100,6 +104,8 @@ function SettingsInner({
         hasUpdate: false,
         checkUnavailable: true,
         canUpdate: false,
+        canDownload: false,
+        desktopReason: "checkFailed",
         webReason: "checkFailed",
       }));
     } finally {

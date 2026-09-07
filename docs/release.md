@@ -70,9 +70,48 @@ Publishing and packaged repository metadata use the repository running the
 workflow. Upstream builds publish to `OpenBMB/PilotDeck`; fork builds publish to
 their own repository.
 
-Web self-update now reads these unified releases; see [Web updates](web-update.md)
-for supported deployments and the update process. Desktop in-app update discovery
-has not yet been migrated to the unified tags and remains a separate follow-up.
+Web and desktop updates both read these unified releases. See
+[Web updates](web-update.md) for supported Git deployments.
+
+## Desktop updates
+
+The client checks stable, non-draft `vYYYY.MM.DD[-rN]` releases in its packaged
+repository (or `PILOTDECK_UPDATE_REPOSITORY` override). It validates `release.json`
+against the release tag, numeric version, repository, source commit format, and
+published installer names and sizes. The newest release is compared numerically
+with Electron's `app.getVersion()`: only a higher version offers an update.
+Equal or older releases never trigger a downgrade. Historical `desktop-v` tags
+and filename-based version guessing are not supported.
+
+Installer selection requires an exact platform and running-client architecture:
+
+| Client | Installer |
+| --- | --- |
+| macOS arm64 | arm64 DMG |
+| macOS x64 (including Rosetta) | x64 DMG |
+| Windows x64 | x64 setup EXE |
+
+Missing or ambiguous installers disable downloading with an explanation. A client
+does not switch architectures automatically. Unsupported platforms, unknown
+versions, and failed release checks also disable downloading.
+
+The About page provides two explicit actions:
+
+1. **Download update** streams the installer into a unique update-cache directory,
+   shows progress, and verifies its size and SHA-256 against `release.json`.
+   Cancellation and failures remove the partial download; a new attempt starts
+   from the beginning.
+2. **Install update** checks the cached file's path, size and SHA-256 again before
+   opening it through macOS `open` or Windows PowerShell `Start-Process`. Windows
+   passes the path as environment data, so the system can launch the installer
+   and handle its elevation prompt. This does not silently install the update.
+   The user completes the installer steps and restarts the client. On macOS this
+   includes replacing the application in Applications.
+
+Reopening About recovers an active or completed download from the server. Jobs
+are held for the current client process only; restarting the client requires a
+new download. An OS launch failure retains the verified installer for retry,
+while a missing or modified file requires downloading again.
 
 ## Required GitHub Secrets
 

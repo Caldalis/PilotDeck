@@ -25,7 +25,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 const router = express.Router();
 
-// Keep the existing desktop scope adapter until desktop update migration.
+// Route desktop checks to the client-specific installation policy.
 router.post('/check', async (req, res, next) => {
   if (req.body?.scope !== 'desktop' && req.query.scope !== 'desktop') return next();
   const status = await getDesktopUpdateStatus({ force: req.body?.force === true || req.query.force === '1' });
@@ -59,10 +59,7 @@ router.post('/desktop/check', async (_req, res) => {
 router.get('/desktop/releases', async (req, res) => {
   try {
     const limit = req.query.limit;
-    const includePrerelease = req.query.includePrerelease === undefined
-      ? undefined
-      : req.query.includePrerelease === '1' || req.query.includePrerelease === 'true';
-    const payload = await listDesktopReleases({ limit, includePrerelease });
+    const payload = await listDesktopReleases({ limit });
     res.json(payload);
   } catch (error) {
     res.status(502).json({
@@ -78,17 +75,12 @@ router.get('/desktop/releases', async (req, res) => {
  */
 router.post('/desktop/download', async (req, res) => {
   try {
-    const download = await startDesktopUpdateDownload({
-      force: req.body?.force === true,
-      assetId: req.body?.assetId,
-      assetName: req.body?.assetName,
-      platform: req.body?.platform,
-      arch: req.body?.arch,
-    });
+    const download = await startDesktopUpdateDownload();
     res.status(202).json({ success: true, download });
   } catch (error) {
     res.status(error.statusCode || 500).json({
       error: 'Failed to start desktop update download',
+      reason: error.reason || 'downloadFailed',
       message: error.message,
     });
   }
@@ -114,13 +106,14 @@ router.post('/desktop/download/cancel', (_req, res) => {
  * POST /api/update/desktop/install
  * Launch the downloaded installer through the OS shell.
  */
-router.post('/desktop/install', (req, res) => {
+router.post('/desktop/install', async (req, res) => {
   try {
-    const result = launchDownloadedDesktopUpdate({ filePath: req.body?.filePath });
+    const result = await launchDownloadedDesktopUpdate({ filePath: req.body?.filePath });
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(error.statusCode || 500).json({
       error: 'Failed to launch desktop update installer',
+      reason: error.reason || 'installFailed',
       message: error.message,
     });
   }
