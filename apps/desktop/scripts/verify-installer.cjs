@@ -11,16 +11,27 @@ const libRoot = path.dirname(builderRequire.resolve('app-builder-lib/package.jso
 const { getMakeNsisPath, getNsisPluginsPath } = require(path.join(libRoot, 'out/toolsets/windows.js'));
 const { NsisScriptGenerator } = require(path.join(libRoot, 'out/targets/nsis/nsisScriptGenerator.js'));
 const templates = path.join(libRoot, 'templates/nsis');
-const resources = path.resolve(__dirname, '../resources');
+const projectDir = path.resolve(__dirname, '..');
+const { build } = require(path.join(projectDir, 'package.json'));
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotdeck-nsis-test-'));
   try {
+    // Also exercise quoted includes when the checkout path contains spaces.
+    const fixtureDir = path.join(root, 'desktop project');
+    const fixtureResources = path.join(fixtureDir, 'resources');
+    fs.mkdirSync(fixtureResources, { recursive: true });
+    for (const name of ['installer.nsh', 'installer-start-app.nsh']) {
+      fs.copyFileSync(path.join(projectDir, 'resources', name), path.join(fixtureResources, name));
+    }
+    const buildResources = path.resolve(fixtureDir, build.directories.buildResources || 'build');
+    fs.mkdirSync(buildResources, { recursive: true });
     const binary = await getMakeNsisPath();
     const plugins = await getNsisPluginsPath();
     const generator = new NsisScriptGenerator();
-    generator.addIncludeDir(templates);
     generator.addIncludeDir(path.join(templates, 'include'));
-    generator.addIncludeDir(resources);
+    // NsisTarget adds buildResources, NOT the custom include's parent directory.
+    // Do not make a bare sibling include work here when production cannot find it.
+    generator.addIncludeDir(buildResources);
     generator.addPluginDir('x86-unicode', path.join(plugins, 'x86-unicode'));
     generator.include(path.join(templates, 'include/StdUtils.nsh'));
     generator.flags(['updated', 'force-run']);
@@ -32,7 +43,8 @@ const resources = path.resolve(__dirname, '../resources');
 !define PRODUCT_NAME "PilotDeck"
 !define PRODUCT_FILENAME "PilotDeck"
 !define VERSION "2026.907.0"
-!include "${path.join(resources, 'installer.nsh')}"
+!define PROJECT_DIR "${fixtureDir}"
+!include "${path.resolve(fixtureDir, build.nsis.include)}"
 !include "common.nsh"
 !include "MUI2.nsh"
 !insertmacro MUI_PAGE_INSTFILES
@@ -44,10 +56,9 @@ Section
 !macro doStartApp${launchSection}
 SectionEnd
 `;
-    // Absolute custom include avoids colliding with the builder's installer.nsi.
-    const file = path.join(root, 'test.nsi'); fs.writeFileSync(file, script);
-    const options = { cwd: resources, env: { ...process.env, ...binary.env }, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 };
-    const compiledLog = execFileSync(binary.path, ['-V4', file], options);
+    // Match NsisTarget.executeMakensis: stdin and the builder's template cwd.
+    const options = { cwd: templates, input: script, env: { ...process.env, ...binary.env }, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 };
+    const compiledLog = execFileSync(binary.path, ['-V4', '-INPUTCHARSET', 'UTF8', '-'], options);
 
     assert.equal((compiledLog.match(/Exec: .*explorer\.exe/g) || []).length, 2, 'interactive and silent launches both use explorer');
     assert.ok(!/Plugin command: ExecShellAsUser/.test(compiledLog), 'no default user-launch call survives expansion');

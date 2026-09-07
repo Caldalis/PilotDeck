@@ -19,7 +19,8 @@ const productionPaths = [
   "src", "ui", "skills", "apps/desktop", "scripts",
   "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.json",
   "Dockerfile", "docker-entrypoint.sh", ".dockerignore",
-  ".github/workflows/desktop-build.yml", ".github/workflows/release.yml",
+  ".github/workflows/desktop-build.yml", ".github/workflows/desktop-windows.yml",
+  ".github/workflows/release.yml",
 ];
 
 const shouldBuild = process.env.FORCE_RELEASE === "true"

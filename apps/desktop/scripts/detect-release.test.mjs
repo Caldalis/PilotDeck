@@ -69,7 +69,11 @@ test("unchanged and documentation-only commits skip unless forced", (t) => {
   assert.equal(forced.output.source_sha, sha);
 });
 
-for (const file of ["ui/app.js", "apps/desktop/src/main.ts", "Dockerfile", ".github/workflows/release.yml"]) {
+for (const file of [
+  "ui/app.js", "apps/desktop/src/main.ts", "Dockerfile",
+  ".github/workflows/desktop-build.yml", ".github/workflows/desktop-windows.yml",
+  ".github/workflows/release.yml",
+]) {
   test(`production changes trigger a release: ${file}`, (t) => {
     const { git, commit, detect } = repository(t);
     git("tag", "v2026.09.06");
