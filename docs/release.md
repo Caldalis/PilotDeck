@@ -1,4 +1,4 @@
-# Desktop build and release
+# PilotDeck releases and desktop builds
 
 PilotDeck keeps Web and desktop sources on `main`. The desktop application is a
 thin Electron shell around the same gateway and Web UI; desktop-specific runtime
@@ -25,27 +25,54 @@ known baseline failures; all other UI/server tests remain in the merge gate.
 
 ## Daily release policy
 
-`.github/workflows/desktop-release.yml` runs every day at 02:00 Asia/Shanghai
+`.github/workflows/release.yml` runs every day at 02:00 Asia/Shanghai
 (18:00 UTC on the previous calendar day). It compares `main` with the commit in
-the latest desktop release tag:
+the latest unified release tag:
 
 - no production change: skip the release;
 - production change: build signed and notarized macOS arm64 and x64 installers
   plus an unsigned Windows installer, then publish one dated GitHub Release;
 - repeated manual release on the same date: use `-r2`, `-r3`, and so on.
 
-Release tags are `desktop-vYYYY.MM.DD`. The internal Electron version is a
-numeric SemVer derived from the same Shanghai date. GitHub Actions may also be
-started manually with an optional release revision.
+Release names and tags are `vYYYY.MM.DD`, for example `v2026.09.07`.
+Additional releases on that date use `v2026.09.07-r2`, `-r3`, and so on.
+The internal Electron version remains a numeric SemVer derived from the same
+Shanghai date: `v2026.09.07` maps to `2026.907.0`, and `-r2` maps to
+`2026.907.1`. GitHub Actions may also be started manually with an optional
+zero-based release revision. An explicitly requested existing tag is rejected.
 
-Every release contains architecture-specific macOS DMGs, the Windows installer,
-`desktop-release.json`, and `SHA256SUMS`. The desktop updater ignores unrelated
-Web/server releases, considers only tags beginning with `desktop-v`, and selects
-the installer matching the current machine architecture.
+Each release shares one exact `main` commit across the tag, desktop installers,
+and Web source code:
 
-Release publishing and packaged updater metadata use the repository running the
-workflow. Production builds from upstream `main` therefore publish to and check
-`OpenBMB/PilotDeck`; fork workflows remain isolated to their own repository.
+- Assets: macOS arm64 and x64 DMGs, the Windows installer, `release.json`, and
+  `SHA256SUMS.txt`.
+- Web source: GitHub's automatically provided **Source code (zip)** and
+  **Source code (tar.gz)** archives for the release tag. No separate Web archive
+  or prebuilt deployment package is uploaded; source deployments still install
+  dependencies and build the application.
+- `release.json`: the numeric version, tag, release date, metadata generation
+  time (`buildTime`), source commit (`sourceSha`), repository, and installer
+  sizes, platforms, architectures, and SHA-256 checksums. `SHA256SUMS.txt`
+  covers the uploaded installers, not GitHub-generated source archives.
+
+Release detection considers Web, Gateway, desktop, shared runtime, and Docker
+files. Changes limited to `docs/` or root README files skip the release unless
+`force` is enabled.
+Only the new `vYYYY.MM.DD[-rN]` tags are considered; historical `desktop-v` tags
+are not used as a baseline, so the first unified release builds automatically.
+
+Build scripts use `PILOTDECK_RELEASE_DATE`, `PILOTDECK_RELEASE_REVISION`,
+`PILOTDECK_RELEASE_VERSION`, `PILOTDECK_RELEASE_TAG`, and
+`PILOTDECK_RELEASE_BUILD_TIME` for release metadata. Desktop runtime environment
+variables remain separate from these build-time inputs.
+
+Publishing and packaged repository metadata use the repository running the
+workflow. Upstream builds publish to `OpenBMB/PilotDeck`; fork builds publish to
+their own repository.
+
+This phase changes packaging and publishing only. The Web and desktop in-app
+update flows have not yet been migrated to the unified release tags; that
+integration is a separate follow-up.
 
 ## Required GitHub Secrets
 

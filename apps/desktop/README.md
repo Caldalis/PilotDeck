@@ -46,6 +46,6 @@ in `.runtime/app` before calling `electron-builder`; the final app should not
 include the other macOS architecture or the workspace development dependency
 tree.
 
-See [`docs/desktop-release.md`](../../docs/desktop-release.md) for the daily
+See [`docs/release.md`](../../docs/release.md) for the daily
 release policy, required GitHub Secrets, manual recovery, and Web deployment
 compatibility guarantees.

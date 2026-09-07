@@ -4,12 +4,12 @@ import { buildDateVersion, buildReleaseTag, formatReleaseDate, parseRevision } f
 
 test("builds a stable date version and tag", () => {
   assert.equal(buildDateVersion("2026-09-02"), "2026.902.0");
-  assert.equal(buildReleaseTag("2026-09-02"), "desktop-v2026.09.02");
+  assert.equal(buildReleaseTag("2026-09-02"), "v2026.09.02");
 });
 
 test("builds a same-day revision", () => {
   assert.equal(buildDateVersion("2026-09-02", 1), "2026.902.1");
-  assert.equal(buildReleaseTag("2026-09-02", 1), "desktop-v2026.09.02-r2");
+  assert.equal(buildReleaseTag("2026-09-02", 1), "v2026.09.02-r2");
 });
 
 test("formats dates in the requested timezone", () => {
