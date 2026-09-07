@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { randomUUID } = require('node:crypto');
 const cp = require('node:child_process');
+const { WINDOWS_STARTUP_TIMEOUT_MS } = require('./processIdentity.cjs');
 const KEY = Symbol.for('pilotdeck.processScope');
 function writeRecord(file, value) {
   const temp = `${file}.${process.pid}.tmp`;
@@ -30,7 +31,8 @@ function attach(child, scope) {
   const report = (result) => {
     if (completed) return;
     completed = true;
-    child.emit('managed-exit', result.code, result.signal);
+    scope.completion = result;
+    child.emit('managed-exit', result.code, result.signal, result.startupError);
   };
   child.stdio[scope.completionFd].setEncoding('utf8').on('data', chunk => {
     buffered += chunk;
@@ -62,6 +64,7 @@ function spawnManaged(command, args, options, node = process.execPath) {
   // No preload or environment propagation into business commands.
   const stdio = Array.isArray(options.stdio) ? [...options.stdio] : ['ignore', 'pipe', 'pipe'];
   scope.completionFd = stdio.length;
+  if (process.platform === 'win32') scope.startupDeadline = Date.now() + WINDOWS_STARTUP_TIMEOUT_MS;
   stdio.push('pipe');
   // shell belongs to the real command, not the Node guardian executable.
   const record = JSON.parse(fs.readFileSync(scope.file, 'utf8'));

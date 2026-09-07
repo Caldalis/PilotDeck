@@ -243,5 +243,9 @@ sessions/groups are outside this guarantee; this is not a general process sandbo
 inherited-group cleanup after command exit, plus native Bash background launch
 and sibling cancellation behavior on POSIX. Both desktop platform build jobs
 run it before packaging.
-The Windows Job implementation still needs its first Windows CI/platform run;
-local macOS tests do not establish Windows runtime correctness.
+The Desktop Smoke workflow also runs the native Windows process tests on each
+relevant PR. Windows identity lookup uses targeted .NET process queries instead
+of CIM enumeration, allowing 15 seconds per query and a bounded 60-second
+bootstrap window. Shutdown retains identity checks and native Job termination;
+startup failure reports its cause before waiting for application IPC. These
+checks do not replace an actual Windows installation/upgrade test.
