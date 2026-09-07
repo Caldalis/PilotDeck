@@ -11,11 +11,22 @@ Function fixInstallerIcon
   done:
 FunctionEnd
 
-; Fix 2: Override finish page to launch the app via explorer.exe,
-; which de-elevates naturally and avoids StdUtils.ExecShellAsUser hang.
+; Both the interactive finish page and silent --force-run updates must use
+; explorer.exe to de-elevate, avoiding StdUtils.ExecShellAsUser hanging.
+; The custom include precedes common.nsh. Replace its macro from customHeader,
+; after common.nsh is loaded and before the install section is expanded.
+!macro customHeader
+  !macroundef StartApp
+  !include "installer-start-app.nsh"
+!macroend
+
+!macro PilotDeckStartApp
+  Exec '"$WINDIR\explorer.exe" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
+!macroend
+
 !macro customFinishPage
   Function StartApp
-    Exec '"$WINDIR\explorer.exe" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
+    !insertmacro PilotDeckStartApp
   FunctionEnd
 
   !define MUI_FINISHPAGE_RUN

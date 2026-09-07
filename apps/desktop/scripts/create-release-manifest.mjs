@@ -5,30 +5,31 @@ import { basename, resolve } from "node:path";
 
 const assetsDir = resolve(process.argv[2] || "release-assets");
 const files = listFiles(assetsDir)
-  .filter((file) => !["desktop-release.json", "SHA256SUMS.txt"].includes(basename(file)));
+  .filter((file) => !["release.json", "SHA256SUMS.txt"].includes(basename(file)));
 
 if (files.length === 0) throw new Error(`No desktop release assets found under ${assetsDir}`);
 
 const assets = files.map((file) => ({
   name: basename(file),
   size: statSync(file).size,
-  sha256: sha256(file),
+  sha256: digest(file, "sha256", "hex"),
+  sha512: digest(file, "sha512", "base64"),
   platform: inferPlatform(file),
   arch: inferArch(file),
 }));
 
 const manifest = {
   schemaVersion: 1,
-  version: requiredEnv("PILOTDECK_DESKTOP_VERSION"),
-  tag: requiredEnv("PILOTDECK_DESKTOP_RELEASE_TAG"),
-  date: requiredEnv("PILOTDECK_DESKTOP_RELEASE_DATE"),
-  buildTime: requiredEnv("PILOTDECK_DESKTOP_BUILD_TIME"),
+  version: requiredEnv("PILOTDECK_RELEASE_VERSION"),
+  tag: requiredEnv("PILOTDECK_RELEASE_TAG"),
+  date: requiredEnv("PILOTDECK_RELEASE_DATE"),
+  buildTime: requiredEnv("PILOTDECK_RELEASE_BUILD_TIME"),
   sourceSha: requiredEnv("PILOTDECK_COMMIT_SHA"),
   repository: requiredEnv("PILOTDECK_UPDATE_REPOSITORY"),
   assets,
 };
 
-writeFileSync(resolve(assetsDir, "desktop-release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+writeFileSync(resolve(assetsDir, "release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 writeFileSync(
   resolve(assetsDir, "SHA256SUMS.txt"),
   `${assets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n")}\n`,
@@ -41,8 +42,8 @@ function listFiles(directory) {
   });
 }
 
-function sha256(file) {
-  return createHash("sha256").update(readFileSync(file)).digest("hex");
+function digest(file, algorithm, encoding) {
+  return createHash(algorithm).update(readFileSync(file)).digest(encoding);
 }
 
 function inferPlatform(file) {

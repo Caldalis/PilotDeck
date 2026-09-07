@@ -126,7 +126,11 @@ test("BackgroundTaskRuntime enforces the task limit and stops by agent", async (
   assert.equal(first.status, "cancelled");
 });
 
-test("BackgroundTaskRuntime covers timeout, abort, unknown task and kill-all cleanup", async () => {
+test("BackgroundTaskRuntime covers timeout, abort, unknown task and kill-all cleanup", async (t) => {
+  // Real children keep Node alive; these EventEmitter fakes do not. The runtime's
+  // unref'ed wait timeout must still be exercised when this file runs by itself.
+  const alive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(alive));
   const first = new FakeChild(true);
   const second = new FakeChild(true);
   let index = 0;

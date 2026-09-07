@@ -16,11 +16,11 @@ const desktopRoot = path.resolve(__dirname, "..");
 const packageJsonPath = path.join(desktopRoot, "package.json");
 const metadataPath = path.join(desktopRoot, "resources", "build-metadata.json");
 
-const releaseDate = process.env.PILOTDECK_DESKTOP_RELEASE_DATE || formatReleaseDate(new Date());
-const revision = parseRevision(process.env.PILOTDECK_DESKTOP_REVISION);
-const version = process.env.PILOTDECK_DESKTOP_VERSION || buildDateVersion(releaseDate, revision);
-const releaseTag = process.env.PILOTDECK_DESKTOP_RELEASE_TAG || buildReleaseTag(releaseDate, revision);
-const buildTime = process.env.PILOTDECK_DESKTOP_BUILD_TIME || new Date().toISOString();
+const releaseDate = process.env.PILOTDECK_RELEASE_DATE || formatReleaseDate(new Date());
+const revision = parseRevision(process.env.PILOTDECK_RELEASE_REVISION);
+const version = process.env.PILOTDECK_RELEASE_VERSION || buildDateVersion(releaseDate, revision);
+const releaseTag = process.env.PILOTDECK_RELEASE_TAG || buildReleaseTag(releaseDate, revision);
+const buildTime = process.env.PILOTDECK_RELEASE_BUILD_TIME || new Date().toISOString();
 const commitSha = process.env.PILOTDECK_COMMIT_SHA || process.env.GITHUB_SHA || resolveGitCommit();
 const repository = process.env.PILOTDECK_UPDATE_REPOSITORY || process.env.GITHUB_REPOSITORY || "OpenBMB/PilotDeck";
 
@@ -31,22 +31,23 @@ writeFileSync(metadataPath, `${JSON.stringify({
   version,
   buildTime,
   releaseDate,
+  releaseTag,
   commitSha,
   repository,
 }, null, 2)}\n`);
 
 exportGitHubEnv({
-  PILOTDECK_DESKTOP_VERSION: version,
-  PILOTDECK_DESKTOP_RELEASE_DATE: releaseDate,
-  PILOTDECK_DESKTOP_RELEASE_TAG: releaseTag,
+  PILOTDECK_RELEASE_VERSION: version,
+  PILOTDECK_RELEASE_DATE: releaseDate,
+  PILOTDECK_RELEASE_TAG: releaseTag,
   PILOTDECK_COMMIT_SHA: commitSha,
-  PILOTDECK_DESKTOP_BUILD_TIME: buildTime,
+  PILOTDECK_RELEASE_BUILD_TIME: buildTime,
   PILOTDECK_UPDATE_REPOSITORY: repository,
 });
 exportGitHubOutput({ version, release_date: releaseDate, release_tag: releaseTag, commit_sha: commitSha });
 
 console.log(`PilotDeck desktop version set to ${version}`);
-console.log(`PilotDeck desktop release tag set to ${releaseTag}`);
+console.log(`PilotDeck release tag set to ${releaseTag}`);
 console.log(`PilotDeck desktop commit set to ${commitSha}`);
 console.log(`PilotDeck desktop build time set to ${buildTime}`);
 
