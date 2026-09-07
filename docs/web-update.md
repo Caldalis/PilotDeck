@@ -78,3 +78,15 @@ confirmed failure clears the intent, and results from other update IDs cannot
 trigger an automatic restart. Other pending updates retain the explicit
 restart action. `scripts/update.sh` uses the same eligibility checks and staged
 update implementation; it requires a manual service restart on completion.
+
+Update commands now run under a registered process supervisor. Each asynchronous
+Node child launch reserves a record before spawning, and a guardian records its
+process creation identity before executing the command. Independent child groups
+remain registered if their launching Node process crashes. Shutdown revalidates
+identities before signalling; a reused PID is never accepted as ownership.
+Registration files are private temporary directories named
+`pilotdeck-process-scope-*`. Missing identities, interrupted registrations, or an
+unexpected guardian death produce `processStopFailed`; update staging and the
+lock remain for manual recovery. Never remove a live registry to bypass this
+failure. POSIX guardians anchor process groups; Windows uses non-breakaway Job
+Objects and waits for the Job holder to confirm that its processes exited.

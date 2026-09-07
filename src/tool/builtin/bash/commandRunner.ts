@@ -1,3 +1,4 @@
+import { stopSupervisedProcess } from "../../../runtime/supervisedProcess.js";
 import { spawn } from "node:child_process";
 import { TextDecoder } from "node:util";
 import { resolveDefaultCommandShell } from "../../../runtime/commandShell.js";
@@ -50,6 +51,8 @@ export class NodeShellCommandRunner implements PilotDeckCommandRunner {
       let settled = false;
 
       function killProcessGroup() {
+        const stopping = stopSupervisedProcess(child);
+        if (stopping) { void stopping.catch(error => { stderr += `\n${String(error)}`; }); return; }
         const pid = child.pid;
         if (!pid) return;
         if (process.platform === "win32") {

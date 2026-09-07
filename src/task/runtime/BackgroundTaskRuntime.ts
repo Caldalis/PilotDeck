@@ -1,3 +1,4 @@
+import { stopSupervisedProcess } from "../../runtime/supervisedProcess.js";
 /**
  * `BackgroundTaskRuntime` — the central registry + spawn / kill orchestrator
  * for C5 background bash tasks (§6.5). Mirrors the legacy upstream
@@ -289,6 +290,8 @@ export class BackgroundTaskRuntime {
     if (task.status !== "running") return;
     if (!child) return;
     task.interrupted = true;
+    const supervised = stopSupervisedProcess(child);
+    if (supervised) { await supervised; await done; return; }
     if (process.platform === "win32") {
       await killWindowsProcessTree(child);
       await waitForDoneOrTimeout(done, options.graceMs ?? DEFAULT_GRACE_MS);

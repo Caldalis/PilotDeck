@@ -219,3 +219,25 @@ check downloads the builder's NSIS toolchain if uncached, compiles the launch
 paths using the installed templates, and checks that both use `explorer.exe`.
 It does not run the generated EXE. Windows elevation/relaunch and signed macOS
 cross-version replacement still require real platform upgrade tests.
+
+## Managed process shutdown
+
+Desktop runtime processes and Web build commands use the same launch-time
+registry and guardian. Scoped Node child launches are registered before command
+execution, including independent process groups created by Bash, background
+jobs, Python tool execution and Node plugins. Stopping a single task selects its
+registered descendants, leaving siblings and the parent runtime running. These
+scoped paths bypass delayed termination by raw PID.
+
+On POSIX, a guardian anchors each command's group until its members finish or
+shutdown terminates the group. Creation identities are checked before signals;
+a missing or replaced guardian is an explicit cleanup failure. On Windows, an
+external PowerShell/C# Job holder assigns the guardian to a non-breakaway Job
+before command execution, terminates through the Job handle, and confirms zero
+active processes. Runtime restart/installation must not proceed if registration,
+identity verification, Job assignment or cleanup cannot be confirmed.
+
+`node --test apps/desktop/scripts/process-scope.test.mjs` exercises IPC and
+parent-crash cleanup. Both desktop platform build jobs run it before packaging.
+The Windows Job implementation still needs its first Windows CI/platform run;
+local macOS tests do not establish Windows runtime correctness.

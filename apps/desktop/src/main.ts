@@ -255,7 +255,8 @@ class RuntimeManager {
   ): ChildProcess {
     const [bin, ...args] = command;
     if (!bin) throw new Error(`Missing command for ${name}`);
-    const child = spawn(bin, args, {
+    const { spawnManaged } = require(path.join(this.runtimeRoot, "ui/server/utils/processTree.js"));
+    const child: ChildProcess = spawnManaged(bin, args, {
       cwd,
       env,
       stdio: options.ipc
@@ -263,7 +264,7 @@ class RuntimeManager {
         : ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
       windowsHide: process.platform === "win32",
-    });
+    }, this.nodeBinary);
     this.processes.push({ name, child });
     this.log(`[${name}] spawn ${bin} ${args.join(" ")}`);
 

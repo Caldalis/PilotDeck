@@ -106,6 +106,9 @@ jobs:
           EXPECTED_HOST_ARCH: ${{ matrix.host_arch }}
         run: test "$(uname -m)" = "$EXPECTED_HOST_ARCH"
 
+      - name: Verify managed process ownership and crash cleanup
+        run: node --test apps/desktop/scripts/process-scope.test.mjs
+
       - name: Set desktop release metadata
         run: node apps/desktop/scripts/set-ci-version.mjs
 
@@ -216,6 +219,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify managed process ownership and crash cleanup
+        run: node --test apps/desktop/scripts/process-scope.test.mjs
 
       - name: Set desktop release metadata
         run: node apps/desktop/scripts/set-ci-version.mjs

@@ -1,3 +1,4 @@
+import { stopSupervisedProcess } from "../../runtime/supervisedProcess.js";
 import { createServer, type AddressInfo, type Server, type Socket } from "node:net";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -844,6 +845,8 @@ function waitForExit(child: ChildProcessByStdio<null, Readable, Readable>): Prom
 
 function killProcess(child: ChildProcessByStdio<null, Readable, Readable> | undefined, escalate: boolean): void {
   if (!child || child.killed) return;
+  const stopping = stopSupervisedProcess(child);
+  if (stopping) { void stopping.catch(error => console.error("[execute-code] Cleanup unconfirmed:", String(error))); return; }
   try {
     if (process.platform !== "win32" && child.pid) {
       process.kill(-child.pid, "SIGTERM");
