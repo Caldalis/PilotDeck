@@ -1,8 +1,11 @@
 import express from 'express';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createWebUpdateService } from '../services/webUpdateService.js';
 
 export function createWebUpdateRouter(service = createWebUpdateService()) {
   const router = express.Router();
+  router.get('/context', (_req, res) => res.json({ projectRoot: realpathSync(fileURLToPath(new URL('../../../', import.meta.url))) }));
   router.post('/check', async (_req, res) => res.json(await service.check()));
   router.get('/status', (_req, res) => res.json(service.status()));
   router.post('/apply', async (req, res) => {

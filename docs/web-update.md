@@ -61,7 +61,7 @@ the server log identifies the backup directory for manual recovery. Do not remov
 an update lock while another updater is running.
 
 Each install/build command has a 15-minute limit. On timeout, the updater stops
-its process tree, escalates to a forced stop, and confirms termination before
+its managed process group (Windows Job), escalates to a forced stop, and confirms termination before
 removing temporary files and releasing the lock. If termination cannot be
 confirmed, the request returns `processStopFailed` and retains both the staging
 directory and `.git/pilotdeck-update.lock`. Stop the remaining build processes
@@ -76,17 +76,45 @@ A broken progress stream or temporary network failure preserves this intent
 and polls `/api/update/status` until the backend confirms the outcome. A
 confirmed failure clears the intent, and results from other update IDs cannot
 trigger an automatic restart. Other pending updates retain the explicit
-restart action. `scripts/update.sh` uses the same eligibility checks and staged
-update implementation; it requires a manual service restart on completion.
+restart action.
 
-Update commands now run under a registered process supervisor. Each asynchronous
-Node child launch reserves a record before spawning, and a guardian records its
-process creation identity before executing the command. Independent child groups
-remain registered if their launching Node process crashes. Shutdown revalidates
-identities before signalling; a reused PID is never accepted as ownership.
-Registration files are private temporary directories named
-`pilotdeck-process-scope-*`. Missing identities, interrupted registrations, or an
-unexpected guardian death produce `processStopFailed`; update staging and the
-lock remain for manual recovery. Never remove a live registry to bypass this
-failure. POSIX guardians anchor process groups; Windows uses non-breakaway Job
-Objects and waits for the Job holder to confirm that its processes exited.
+## CLI and IM
+
+`pilotdeck update --check`, `/update check` and the settings page use the same
+Release selection and deployment eligibility policy. The command loads the same
+Web configuration and proxy settings. When a Web service is running on the local
+`SERVER_PORT` (default 3001), it authenticates with the installation's existing
+local credentials, verifies the installation root, and calls the same check,
+apply, status and restart APIs as settings. If the Web server selected a fallback
+port, set `SERVER_PORT` to that actual port when using CLI/IM. Authentication,
+installation mismatch and unexpected server errors do not fall back to a separate
+filesystem update.
+
+`pilotdeck update --restart` and `/update` request a restart from the running Web
+service only after a confirmed successful update. An interrupted apply stream is
+recovered using its update ID. Accepted restart means the runtime accepted the
+request; these text commands do not claim to have verified the new instance is
+healthy. If restart fails, the message distinguishes the prepared update from the
+restart failure and asks for a manual restart. The IM Gateway does not exit itself.
+
+If the Web service is not running, `pilotdeck update` or `scripts/update.sh` can
+use the same Release service directly, with a manual restart afterward. `--check`
+is supported by both. `--restart` without a running Web service is explicitly
+rejected before updating files. Developer workspaces, containers and other
+unsupported deployments receive the same eligibility reason as settings.
+
+## Process ownership boundary
+
+Only explicitly managed services and update build commands reserve a process
+record before spawning. Their guardians verify process creation identity before
+execution and again before shutdown signals. Command completion is separate from
+the guardian lifetime. Business subprocesses are not intercepted or given a Node
+preload, so launching a background service keeps normal shell semantics.
+
+On POSIX, cleanup covers the registered group, including orphaned processes that
+retain that group; arbitrary detached groups/sessions are outside this guarantee.
+Windows uses a non-breakaway Job and confirms that its member processes exited.
+Registration files live in private `pilotdeck-process-scope-*` temporary directories.
+Missing identities, interrupted registrations or an unexpected guardian death
+produce `processStopFailed`; update staging and the lock remain for manual
+recovery. Never remove a live registry to bypass this failure.

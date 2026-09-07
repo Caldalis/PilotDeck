@@ -71,10 +71,10 @@ describe('managed process identities', () => {
 });
 
 describe.skipIf(process.platform === 'win32')('real supervised lifetimes', () => {
-  it.each([0, 300])('cleans detached orphans when parent exits after %s ms', async delay => {
-    const child = command(`const c=require('node:child_process').spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{detached:true,stdio:['ignore','inherit','inherit']});c.unref();setTimeout(()=>process.exit(2),${delay})`);
+  it.each([0, 300])('cleans inherited-group orphans when the command exits after %s ms', async delay => {
+    const child = command(`const c=require('node:child_process').spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});c.unref();setTimeout(()=>process.exit(2),${delay})`);
     try {
-      const exited = once(child, 'exit'); const [data] = await once(child.stdout, 'data');
+      const exited = once(child, 'managed-exit'); const [data] = await once(child.stdout, 'data');
       const orphan = Number(data.toString().trim()); await exited;
       expect((await listProcesses()).some(row => row.pid === orphan)).toBe(true);
       await stopProcessTree(child, { graceMs: 50, forceMs: 1500 });
@@ -92,9 +92,9 @@ describe.skipIf(process.platform === 'win32')('real supervised lifetimes', () =>
     try { await once(child, 'message'); const result = once(child, 'message'); child.send('cancel'); expect((await result)[0]).toEqual({ alive: true }); expect(child.exitCode).toBeNull(); }
     finally { await cleanup(child); }
   }, 10000);
-  it('times out even if detached tasks hold stdout open', async () => {
+  it('times out even if tasks in its managed group hold stdout open', async () => {
     let orphan;
-    await expect(runManagedCommand(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{detached:true,stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000)`], { timeoutMs: 1000, progress: value => { orphan = Number(value.trim()); } }))
+    await expect(runManagedCommand(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000)`], { timeoutMs: 1000, progress: value => { orphan = Number(value.trim()); } }))
       .rejects.toMatchObject({ reason: 'buildTimedOut' });
     expect(orphan).toBeGreaterThan(0); expect((await listProcesses()).some(row => row.pid === orphan && !row.zombie)).toBe(false);
   }, 10000);

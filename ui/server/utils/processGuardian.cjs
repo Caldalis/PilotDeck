@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { listProcesses } = require('./processIdentity.cjs');
-const { writeRecord, withoutTracking, isClosing } = require('./processScope.cjs');
+const { writeRecord, isClosing } = require('./processScope.cjs');
 const file = process.argv[2];
 let record = JSON.parse(fs.readFileSync(file, 'utf8'));
 const directory = path.dirname(file);
-const closing = () => isClosing(directory, process.env.PILOTDECK_PROCESS_ENTRY);
+const closing = () => isClosing(directory, path.basename(file, '.json'));
 if (closing()) { writeRecord(file, { state: 'done', parent: record.parent }); process.exit(0); }
 const identity = listProcesses().find(row => row.pid === process.pid);
 if (!identity?.birth) throw new Error('Cannot establish guardian identity');
@@ -19,11 +19,17 @@ let exited = false;
 let code = 1;
 process.on('SIGTERM', () => {}); // Keep the POSIX group anchor until forced stop.
 process.on('SIGINT', () => {});
+function complete(value, signal) {
+  if (exited) return;
+  exited = true; code = value ?? 1;
+  fs.writeSync(record.completionFd, JSON.stringify({ code: value, signal }) + '\n');
+  fs.closeSync(record.completionFd);
+}
 async function launch() {
   if (process.platform === 'win32') {
     const ready = `${file}.ready`, stopped = `${file}.stopped`, stop = `${file}.stop`;
-    const holder = withoutTracking(() => cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-File', path.join(__dirname, 'processJob.ps1'), String(process.pid), ready, stopped, stop, identity.birth], { stdio: 'ignore', windowsHide: true }));
+    const holder = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(__dirname, 'processJob.ps1'), String(process.pid), ready, stopped, stop, identity.birth], { stdio: 'ignore', windowsHide: true });
     let failed = false;
     holder.on('error', () => { failed = true; });
     holder.on('exit', () => { if (!fs.existsSync(ready)) failed = true; });
@@ -39,17 +45,17 @@ async function launch() {
   if (closing()) return;
   const stdio = Array.from({ length: record.descriptors || 3 }, (_, index) => index);
   if (record.ipc) stdio[record.ipcIndex >= 0 ? record.ipcIndex : 3] = 'ipc';
-  worker = withoutTracking(() => cp.spawn(record.command, record.args, {
+  worker = cp.spawn(record.command, record.args, {
     stdio, env: process.env, detached: false, windowsHide: true, argv0: record.argv0,
     serialization: record.serialization, shell: record.shell, windowsVerbatimArguments: record.windowsVerbatimArguments,
-  }));
+  });
   if (record.ipc) {
     process.on('message', message => { if (worker.connected) worker.send(message, () => {}); });
     worker.on('message', message => { if (process.connected) process.send(message, () => {}); });
     process.on('disconnect', () => { if (worker.connected) worker.disconnect(); });
   }
-  worker.on('error', error => { process.stderr.write(`PilotDeck command failed: ${error.message}\n`); exited = true; });
-  worker.on('exit', value => { exited = true; code = value ?? 1; });
+  worker.on('error', error => { process.stderr.write(`PilotDeck command failed: ${error.message}\n`); complete(1, null); });
+  worker.on('exit', (value, signal) => complete(value, signal));
 }
 launch().catch(error => { record.uncertain = true; writeRecord(file, record); process.stderr.write(`${error.message}\n`); });
 const timer = setInterval(() => {

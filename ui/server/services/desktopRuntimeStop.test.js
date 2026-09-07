@@ -40,3 +40,15 @@ it('does not discard an exited parent until the process tree check succeeds', as
   await manager.stop();
   expect(stop).toHaveBeenCalledWith(child);
 });
+
+it('rejects startup when the managed command exits while its guardian remains alive', async () => {
+  const { EventEmitter } = await import('node:events');
+  const helper = main.slice(main.indexOf('function waitForPortOrProcessExit('), main.indexOf('async function killProcessTree('));
+  const context = vm.createContext({ waitForPort: () => new Promise(() => {}) });
+  vm.runInContext(ts.transpileModule(helper + '\nglobalThis.waitForManagedPort = waitForPortOrProcessExit;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  const child = new EventEmitter();
+  const readiness = context.waitForManagedPort(child, 'gateway', 18789, '127.0.0.1', 90000, '/tmp/test.log');
+  child.emit('managed-exit', 2, null);
+  await expect(readiness).rejects.toThrow('gateway exited before it was ready');
+  expect(child.listenerCount('managed-exit')).toBe(0);
+});

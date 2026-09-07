@@ -222,12 +222,11 @@ cross-version replacement still require real platform upgrade tests.
 
 ## Managed process shutdown
 
-Desktop runtime processes and Web build commands use the same launch-time
-registry and guardian. Scoped Node child launches are registered before command
-execution, including independent process groups created by Bash, background
-jobs, Python tool execution and Node plugins. Stopping a single task selects its
-registered descendants, leaving siblings and the parent runtime running. These
-scoped paths bypass delayed termination by raw PID.
+Only explicitly launched desktop services and Web update build commands use the
+registry and guardian. There is no global Node spawn replacement or inherited
+preload. Business commands, plugins, cluster workers and IPC keep their native
+process behavior. Command exit is reported independently from guardian cleanup,
+so a completed command does not wait for its background processes to finish.
 
 On POSIX, a guardian anchors each command's group until its members finish or
 shutdown terminates the group. Creation identities are checked before signals;
@@ -236,8 +235,13 @@ external PowerShell/C# Job holder assigns the guardian to a non-breakaway Job
 before command execution, terminates through the Job handle, and confirms zero
 active processes. Runtime restart/installation must not proceed if registration,
 identity verification, Job assignment or cleanup cannot be confirmed.
+On POSIX the guarantee covers the registered process group, including orphaned
+members that retain that group. Arbitrary business tasks that detach into other
+sessions/groups are outside this guarantee; this is not a general process sandbox.
 
 `node --test apps/desktop/scripts/process-scope.test.mjs` exercises IPC and
-parent-crash cleanup. Both desktop platform build jobs run it before packaging.
+inherited-group cleanup after command exit, plus native Bash background launch
+and sibling cancellation behavior on POSIX. Both desktop platform build jobs
+run it before packaging.
 The Windows Job implementation still needs its first Windows CI/platform run;
 local macOS tests do not establish Windows runtime correctness.

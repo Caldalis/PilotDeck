@@ -1,18 +1,16 @@
 #!/usr/bin/env node
-import { createWebUpdateService } from '../ui/server/services/webUpdateService.js';
+// Load the same deployment configuration and proxy settings as the Web server.
+import { register } from 'tsx/esm/api';
+register();
 
 try {
-  if (process.argv.length > 2) throw new Error('Use scripts/update.sh without arguments, then restart the service manually.');
-  const service = createWebUpdateService();
-  const status = await service.check();
-  if (status.reason === 'upToDate') {
-    console.log('Already at the latest release.');
-    process.exitCode = 2;
-  } else {
-    if (!status.canUpdate) throw new Error(`Self-update unavailable: ${status.reason}. Update manually.`);
-    await service.apply(status.latest, (line) => console.log(line));
-    console.log('Update prepared. Restart PilotDeck to apply it.');
-  }
+  const args = process.argv.slice(2);
+  if (args.some(arg => !['--check', '--restart'].includes(arg))) throw new Error('Usage: update [--check] [--restart]');
+  await import('../ui/server/load-env.js');
+  const { installGlobalProxy } = await import('../ui/server/utils/proxy.js');
+  const { runWebUpdateCommand } = await import('../ui/server/services/webUpdateCommand.js');
+  installGlobalProxy();
+  process.exitCode = await runWebUpdateCommand({ checkOnly: args.includes('--check'), restart: args.includes('--restart') });
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

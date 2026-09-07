@@ -165,6 +165,6 @@ export function runManagedCommand(command, args, {
     child.stdout.on('data', data => progress(data.toString()));
     child.stderr.on('data', data => progress(data.toString()));
     child.once('error', error => void finish(error));
-    child.once('close', code => void finish(code === 0 ? null : Object.assign(new Error(`${command} failed (${code}).`), { reason: 'buildFailed' })));
+    child.once('managed-exit', code => void finish(code === 0 ? null : Object.assign(new Error(`${command} failed (${code}).`), { reason: 'buildFailed' })));
   });
 }

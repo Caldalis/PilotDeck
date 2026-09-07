@@ -270,7 +270,7 @@ class RuntimeManager {
 
     child.stdout?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.logChunk(name, chunk));
-    child.on("exit", (code, signal) => {
+    child.on("managed-exit", (code, signal) => {
       // Retain the group record until stop() confirms all descendants exited.
       this.log(`[${name}] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
       if (this.expectedExits.delete(child)) return;
@@ -972,7 +972,7 @@ function waitForPortOrProcessExit(
     const finish = (callback: () => void) => {
       if (settled) return;
       settled = true;
-      child.off("exit", onExit);
+      child.off("managed-exit", onExit);
       callback();
     };
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
@@ -980,7 +980,7 @@ function waitForPortOrProcessExit(
         reject(new Error(`${name} exited before it was ready (code=${code ?? "null"} signal=${signal ?? "null"}). See runtime log: ${logPath}`));
       });
     };
-    child.once("exit", onExit);
+    child.once("managed-exit", onExit);
     waitForPort(port, host, timeoutMs)
       .then(() => finish(resolve))
       .catch((error) => finish(() => reject(error)));
