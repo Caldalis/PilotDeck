@@ -217,6 +217,13 @@ proxy, without contacting GitHub or installing anything. It covers both config
 and environment proxy discovery/download paths, proxy authentication, and loopback bypass. The installer
 check downloads the builder's NSIS toolchain if uncached, compiles the launch
 paths using the installed templates, and checks that both use `explorer.exe`.
+It uses the builder's template working directory, stdin input, and include
+search paths, including a project path with spaces. Custom sibling includes
+must resolve from `${PROJECT_DIR}` rather than relying on the current directory.
+Desktop Smoke and Daily Release share the Windows Installer workflow: both
+build the actual NSIS installer, validate the packaged updater and elevation
+helper, and require the update feed. PR builds only upload Actions artifacts;
+they do not publish a Release.
 It does not run the generated EXE. Windows elevation/relaunch and signed macOS
 cross-version replacement still require real platform upgrade tests.
 

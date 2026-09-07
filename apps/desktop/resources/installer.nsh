@@ -17,7 +17,8 @@ FunctionEnd
 ; after common.nsh is loaded and before the install section is expanded.
 !macro customHeader
   !macroundef StartApp
-  !include "installer-start-app.nsh"
+  ; NsisTarget expands this macro from its template directory, not resources/.
+  !include "${PROJECT_DIR}/resources/installer-start-app.nsh"
 !macroend
 
 !macro PilotDeckStartApp
