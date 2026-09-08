@@ -593,6 +593,44 @@ describe('config model-list route', () => {
 });
 
 describe('config model-pool connection test routes', () => {
+  it.each(['unrelated edit', 'credential edit'])('runs a detached task against the latest config after %s', async (change) => {
+    let finish;
+    const waiting = new Promise(resolve => { finish = resolve; });
+    const probe = vi.fn().mockImplementationOnce(() => waiting).mockResolvedValue({ ok: true });
+    const provider = { protocol: 'openai', url: 'https://custom.example/v1', apiKey: 'original-key', models: { 'model-a': {} } };
+    const initial = { schemaVersion: 1, agent: { model: 'HXAPI/model-a' }, model: { providers: { HXAPI: provider } } };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial), { probe });
+    const started = await request('/api/config/connection-test-tasks', { method: 'POST', body: JSON.stringify({ providerId: 'HXAPI' }) });
+    expect(started.status).toBe(202);
+    expect(started.body.task.status).toBe('testing');
+    expect(JSON.stringify(started.body)).not.toContain('original-key');
+    // The start HTTP response has closed, but a separate read still sees the task.
+    const pending = await request('/api/config/connection-test-tasks');
+    expect(pending.body.tasks[0].status).toBe('testing');
+    const duplicate = await request('/api/config/connection-test-tasks', { method: 'POST', body: JSON.stringify({ providerId: 'HXAPI' }) });
+    expect(duplicate.status).toBe(409);
+    expect(probe).toHaveBeenCalledTimes(1);
+    const next = structuredClone(initial);
+    next.memory = { enabled: false };
+    if (change === 'credential edit') next.model.providers.HXAPI.apiKey = 'new-key';
+    const edit = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(edit.status).toBe(200);
+    finish({ ok: true });
+    await vi.waitFor(async () => {
+      const state = await request('/api/config/connection-test-tasks');
+      expect(state.body.tasks[0].status).toBe(change === 'credential edit' ? 'saveError' : 'success');
+    });
+    const disk = parseYaml(readFileSync(configPath, 'utf8'));
+    expect(disk.memory.enabled).toBe(false);
+    if (change === 'credential edit') {
+      expect(disk.model.providers.HXAPI.apiKey).toBe('new-key');
+      expect(disk.model.providers.HXAPI.models['model-a'].connectionTest).toBeUndefined();
+    } else {
+      expect(disk.model.providers.HXAPI.apiKey).toBe('original-key');
+      expect(disk.model.providers.HXAPI.models['model-a'].connectionTest.status).toBe('passed');
+    }
+  });
+
   it.each(['HXAPI', 'Gemini', 'OpenAI'])('preserves %s through masked-key testing, real disk save and reload', async (id) => {
     const probe = vi.fn().mockResolvedValue({ ok: true });
     const lower = id.toLowerCase();

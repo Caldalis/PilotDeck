@@ -48,10 +48,31 @@ home's `permissions.json`:
   or a fresh test if the record has expired. Credential and endpoint matching,
   record ownership/expiry checks and model-reference validation remain enforced.
 
+## Connection test tasks
+
+- The server owns each user's running connection test, including saving and manual
+  image confirmation. The settings card polls its status; switching providers,
+  leaving settings, or refreshing the browser does not stop the task or lose it.
+- Test buttons are disabled while reading status, submitting, testing, confirming
+  image capabilities, cancelling or saving. Other providers identify the active
+  provider. Cancellation aborts the probe and releases the slot after it settles.
+- Successful results bind to the latest on-disk config under the config write lock.
+  Unrelated edits are preserved; changed credentials/endpoints or removed models
+  reject the binding. A failed save can retry without another probe.
+- Task snapshots are scoped to the authenticated user and contain no credentials.
+  Terminal results are retained in memory for one hour; pending manual confirmation
+  and failed-save records expire after ten minutes. Restarting the backend ends
+  in-memory tasks. Browser refresh reconnects to the still-running backend task.
+- Chromium checks cover provider/page switching, refresh, completion with settings
+  closed, grey disabled test buttons, save-failure recovery, cancellation and manual
+  image confirmation across navigation.
+
 ## Validation
 
-- Web Regression's local suite: **167 files, 1,359 tests passed** with the same
+- Web Regression's local suite: **168 files, 1,363 tests passed** with the same
   existing CI exclusions for Playwright E2E, streamSmoother and desktop network tests.
+- The final local run hit one transient loopback `ECONNRESET` in the unchanged
+  cron route suite; its 14 tests passed on a focused rerun.
 - Desktop packaging helper tests: **41 passed**; desktop updater network tests passed.
 - Permission settings and router parsing tests: **8 passed**.
 - UI type checking, Gateway/Web production builds and Electron TypeScript compile passed.

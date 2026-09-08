@@ -1,4 +1,5 @@
 import express from 'express';
+import { createConnectionTestTasks } from '../services/connectionTestTasks.js';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -39,6 +40,8 @@ import {
 } from '../services/modelReferences.js';
 import {
   imageCapabilitiesHandler,
+  prepareConnectionTest,
+  applyImageCapabilities,
   connectionTestMatchesProvider,
   getConnectionTestRecord,
   modelConnectionTestsHandler,
@@ -500,6 +503,61 @@ function bindModelConnectionTests(config, bindings, userId) {
   }
   return { config };
 }
+
+const connectionTasks = createConnectionTestTasks({
+  prepare: prepareConnectionTest,
+  getRecord: getConnectionTestRecord,
+  applyImage: applyImageCapabilities,
+  isCurrent: (userId, task) => {
+    const provider = readPilotDeckConfigFile().config?.model?.providers?.[task.providerId];
+    const tested = task.result?.models || [];
+    if (!provider || tested.length !== Object.keys(provider.models || {}).length
+      || !tested.every(model => provider.models[model.modelId]?.connectionTest?.testedAt === task.result.testedAt)) return false;
+    const { record } = getConnectionTestRecord(userId, task.result.testId);
+    return !record || connectionTestMatchesProvider(record, { ...provider, providerId: task.providerId, apiKey: resolveConfiguredProviderApiKey(task.providerId, provider) });
+  },
+  persist: async (userId, testId) => {
+    const saved = await withPilotDeckConfigWrite(async () => {
+      const disk = readPilotDeckConfigFile();
+      if (disk.parseError) throw new Error('Invalid config YAML; repair it before saving test results.');
+      // Bind to the latest disk configuration, retaining unrelated edits made while testing.
+      const next = structuredClone(disk.rawYaml ?? disk.config);
+      const binding = bindModelConnectionTests(next, [{ testId }], userId);
+      if (binding.error) throw Object.assign(new Error(binding.error.message), binding.error);
+      suppressNextWatchEvent();
+      return writeRawPilotDeckYaml(next, { previousConfig: disk.config });
+    });
+    const reload = await reloadPilotDeckConfig(saved.config);
+    void notifyGatewayConfigReload();
+    broadcastConfigEvent({ source: 'ui-save', ...serializePilotDeckConfigResponse(readPilotDeckConfigFile(), reload), timestamp: new Date().toISOString() });
+  },
+});
+
+router.get('/connection-test-tasks', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ tasks: connectionTasks.list(req.user.id) });
+});
+
+const taskAction = (action) => (req, res) => {
+  try { res.status(202).json({ task: action(req), tasks: connectionTasks.list(req.user.id) }); }
+  catch (error) { res.status(error.status || 500).json({ code: error.code || 'TEST_FAILED', message: error.message, tasks: connectionTasks.list(req.user.id) }); }
+};
+router.post('/connection-test-tasks', modelTestRateLimiter, taskAction((req) => {
+  const providerId = typeof req.body?.providerId === 'string' ? req.body.providerId.trim() : '';
+  const disk = readPilotDeckConfigFile();
+  const provider = disk.config?.model?.providers?.[providerId];
+  if (disk.parseError || !provider) throw Object.assign(new Error('Configured provider was not found.'), { status: 400, code: 'INVALID_REQUEST' });
+  const catalog = lookupCatalogProvider(providerId);
+  return connectionTasks.start(req.user.id, {
+    providerId, protocol: provider.protocol || catalog?.protocol,
+    endpoint: provider.url || catalog?.defaultUrl,
+    apiKey: resolveConfiguredProviderApiKey(providerId, provider),
+    models: Object.keys(provider.models || {}), retryPolicy: {},
+  });
+}));
+router.post('/connection-test-tasks/:id/retry', taskAction(req => connectionTasks.retry(req.user.id, req.params.id)));
+router.put('/connection-test-tasks/:id/image-capabilities', taskAction(req => connectionTasks.confirm(req.user.id, req.params.id, req.body)));
+router.post('/connection-test-tasks/:id/cancel', taskAction(req => connectionTasks.cancel(req.user.id, req.params.id)));
 
 function broadcastConfigEvent(payload) {
   process.emit('pilotdeck:config-broadcast', payload);

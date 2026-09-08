@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConnectionTestTasks, isTestTaskBusy } from "../hooks/useConnectionTestTasks";
 import { useTranslation } from "react-i18next";
 import { isImeEnterEvent } from "../../../../../utils/ime";
 import { authenticatedFetch } from "../../../../../utils/api";
@@ -56,36 +57,8 @@ type ProviderCardProps = {
   onRemove: () => void;
   onCancelNew?: () => void;
   onPendingChange?: (pending: boolean) => void;
-  onBindConnectionTest?: (testId: string) => Promise<{ ok: boolean; error?: string }>;
   catalogEntry?: CatalogProvider;
   initialEditing?: boolean;
-};
-
-type TestStatus = "idle" | "testing" | "manual" | "success" | "error" | "savingTest" | "saveError";
-
-type ConnectionTestModel = {
-  modelId: string;
-  textInput: "supported" | "unsupported";
-  imageInput: "supported" | "unsupported" | "unknown";
-  error?: { code?: string; message?: string } | null;
-};
-
-type ConnectionTestResponse = {
-  testId?: string;
-  status?: "passed" | "failed" | "manual_input_required";
-  manualInputRequired?: boolean;
-  models?: ConnectionTestModel[];
-  testedAt?: string;
-  error?: { code?: string; message?: string } | null;
-  code?: string;
-  message?: string;
-};
-
-type LegacyConnectionTestResponse = {
-  ok?: boolean;
-  error?: string | { message?: string };
-  message?: string;
-  supportsImage?: boolean | null;
 };
 
 type DeleteDialogState = {
@@ -122,29 +95,6 @@ function catalogModelFor(
   return catalogEntry?.models.find((model) => model.id === modelId || model.aliases?.includes(modelId));
 }
 
-function applyPassingConnectionTests(
-  provider: V2Provider,
-  models: ConnectionTestModel[] | undefined,
-  testedAt?: string,
-): V2Provider {
-  if (!models?.length) return provider;
-  const nextModels = { ...(provider.models ?? {}) };
-  for (const tested of models) {
-    if (tested.textInput !== "supported") continue;
-    if (tested.imageInput !== "supported" && tested.imageInput !== "unsupported") continue;
-    nextModels[tested.modelId] = {
-      ...asModelRecord(nextModels[tested.modelId]),
-      connectionTest: {
-        status: "passed",
-        textInput: tested.textInput,
-        imageInput: tested.imageInput,
-        ...(testedAt ? { testedAt } : {}),
-      },
-    };
-  }
-  return { ...provider, models: nextModels };
-}
-
 export default function ProviderCard({
   providerId,
   provider,
@@ -153,7 +103,6 @@ export default function ProviderCard({
   onRemove,
   onCancelNew,
   onPendingChange,
-  onBindConnectionTest,
   catalogEntry,
   initialEditing = false,
 }: ProviderCardProps) {
@@ -183,11 +132,16 @@ export default function ProviderCard({
   const [apiModels, setApiModels] = useState<ApiModelListItem[] | null>(null);
   const [apiModelsStatus, setApiModelsStatus] = useState<"idle" | "loading" | "error">("idle");
   const [apiModelsError, setApiModelsError] = useState("");
-  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
-  const [testMessage, setTestMessage] = useState("");
-  const [pendingTestSave, setPendingTestSave] = useState<{ data: ConnectionTestResponse; provider: V2Provider } | null>(null);
-  const [connectionTestId, setConnectionTestId] = useState("");
-  const [manualModelIds, setManualModelIds] = useState<string[]>([]);
+  const tests = useConnectionTestTasks();
+  const task = tests.tasks.find(item => item.providerId === providerId);
+  const activeTask = tests.tasks.find(isTestTaskBusy);
+  const ownBusy = isTestTaskBusy(task);
+  const testStatus = task?.status ?? "idle";
+  const testMessage = task?.message;
+  const manualModelIds = testStatus === "manual"
+    ? (task?.result?.models ?? []).filter(model => model.textInput === "supported" && model.imageInput === "unknown").map(model => model.modelId)
+    : [];
+  const testDisabled = tests.checking || tests.pending || !!activeTask || saving;
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
   const displayName = providerDisplayName(
     providerIdDraft || providerId,
@@ -447,189 +401,8 @@ export default function ProviderCard({
   };
 
   const startEditing = () => {
-    setTestStatus("idle");
-    setTestMessage("");
-    setConnectionTestId("");
-    setPendingTestSave(null);
-    setManualModelIds([]);
     setEditing(true);
     void refreshModels();
-  };
-
-  const persistPassingTest = async (
-    data: ConnectionTestResponse,
-    previousProvider: V2Provider,
-  ) => {
-    setTestStatus("savingTest");
-    setPendingTestSave({ data, provider: previousProvider });
-    try {
-      const testedProvider = applyPassingConnectionTests(previousProvider, data.models, data.testedAt);
-      const result = data.testId && onBindConnectionTest
-        ? await onBindConnectionTest(data.testId)
-        : await onSave(providerId, testedProvider);
-      if (!result.ok) throw new Error(result.error || t("pilotDeckConfig.panels.models.testSaveFailed"));
-      setDraftProvider(testedProvider);
-      setPendingTestSave(null);
-      setTestStatus("success");
-      setTestMessage(t("pilotDeckConfig.panels.models.testSuccess"));
-    } catch (error) {
-      setTestStatus("saveError");
-      setTestMessage(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const testErrorMessage = (data: ConnectionTestResponse) =>
-    data.models?.find((model) => model.error?.message)?.error?.message
-    ?? data.error?.message
-    ?? data.message
-    ?? t("pilotDeckConfig.panels.models.testFailed");
-
-  const testConnectionWithLegacyEndpoint = async (): Promise<ConnectionTestResponse> => {
-    const models: ConnectionTestModel[] = [];
-    for (const model of enabledModels) {
-      const response = await authenticatedFetch("/api/config/test-connection", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId,
-          providerType: protocol,
-          baseUrl: effectiveUrl,
-          apiKey: draftProvider.apiKey ?? "",
-          model,
-        }),
-      });
-      const result = await response.json() as LegacyConnectionTestResponse;
-      if (!response.ok || result.ok !== true) {
-        const message = typeof result.error === "string"
-          ? result.error
-          : result.error?.message ?? result.message;
-        return {
-          status: "failed",
-          models: [{
-            modelId: model,
-            textInput: "unsupported",
-            imageInput: "unknown",
-            error: { message: message ?? t("pilotDeckConfig.panels.models.testFailed") },
-          }],
-        };
-      }
-      models.push({
-        modelId: model,
-        textInput: "supported",
-        imageInput: result.supportsImage === true ? "supported" : "unsupported",
-      });
-    }
-    return {
-      status: "passed",
-      models,
-      testedAt: new Date().toISOString(),
-    };
-  };
-
-  const testConnection = async () => {
-    if (!enabledModels.length) {
-      setTestStatus("error");
-      setTestMessage(t("pilotDeckConfig.panels.models.testNeedModel"));
-      return;
-    }
-    if (!effectiveUrl) {
-      setTestStatus("error");
-      setTestMessage(t("pilotDeckConfig.panels.models.testNeedUrl"));
-      return;
-    }
-    if (providerRequiresApiKey && !draftProvider.apiKey) {
-      setTestStatus("error");
-      setTestMessage(t("pilotDeckConfig.panels.models.testNeedKey"));
-      return;
-    }
-    setTestStatus("testing");
-    setTestMessage("");
-    setConnectionTestId("");
-    setPendingTestSave(null);
-    setManualModelIds([]);
-    try {
-      const res = await authenticatedFetch("/api/config/test-connections", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId,
-          protocol,
-          endpoint: effectiveUrl,
-          apiKey: draftProvider.apiKey ?? "",
-          models: enabledModels,
-          retryPolicy: {},
-        }),
-      });
-      const data = res.status === 404
-        ? await testConnectionWithLegacyEndpoint()
-        : await res.json() as ConnectionTestResponse;
-      if (!res.ok) {
-        if (res.status === 404 && data.status === "passed") {
-          await persistPassingTest(data, draftProvider);
-          return;
-        }
-        setTestStatus("error");
-        setTestMessage(testErrorMessage(data));
-        return;
-      }
-      if (data.manualInputRequired && data.testId) {
-        const unresolved = (data.models ?? [])
-          .filter((model) => model.textInput === "supported" && model.imageInput === "unknown")
-          .map((model) => model.modelId);
-        setConnectionTestId(data.testId);
-        setManualModelIds(unresolved);
-        setTestStatus("manual");
-        return;
-      }
-      if (data.status !== "passed") {
-        setTestStatus("error");
-        setTestMessage(testErrorMessage(data));
-        return;
-      }
-      await persistPassingTest(data, draftProvider);
-    } catch (error) {
-      setTestStatus("error");
-      setTestMessage(
-        error instanceof Error ? error.message : t("pilotDeckConfig.panels.models.testFailed"),
-      );
-    }
-  };
-
-  const submitManualImageSupport = async (values: Record<string, boolean>) => {
-    if (!connectionTestId) return;
-    setManualModelIds([]);
-    setTestStatus("testing");
-    try {
-      const res = await authenticatedFetch(
-        `/api/config/test-connections/${encodeURIComponent(connectionTestId)}/image-capabilities`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            models: Object.entries(values).map(([modelId, supportsImage]) => ({
-              modelId,
-              imageInput: supportsImage ? "supported" : "unsupported",
-            })),
-          }),
-        },
-      );
-      const data = await res.json() as ConnectionTestResponse;
-      if (!res.ok || data.status !== "passed") {
-        setTestStatus("error");
-        setTestMessage(testErrorMessage(data));
-        return;
-      }
-      await persistPassingTest(data, draftProvider);
-    } catch (error) {
-      setTestStatus("error");
-      setTestMessage(
-        error instanceof Error ? error.message : t("pilotDeckConfig.panels.models.testFailed"),
-      );
-    }
-  };
-
-  const cancelManualImageSupport = () => {
-    setManualModelIds([]);
-    setConnectionTestId("");
-    setTestStatus("error");
-    setTestMessage(t("pilotDeckConfig.panels.models.manualImageRequired"));
   };
 
   const apiKeyInputValue = isMaskedKey ? MASK : (draftProvider.apiKey ?? "");
@@ -678,6 +451,7 @@ export default function ProviderCard({
               className="button secondary compact edit-provider-button"
               type="button"
               onClick={startEditing}
+              disabled={ownBusy}
             >
               <PencilIcon /> {t("settingsPage.actions.edit")}
             </button>
@@ -686,7 +460,7 @@ export default function ProviderCard({
             className="button destructive-outline compact"
             type="button"
             onClick={() => void openDeleteDialog("provider")}
-            disabled={saving}
+            disabled={saving || ownBusy}
           >
             <TrashIcon /> {t("pilotDeckConfig.actions.remove")}
           </button>
@@ -814,7 +588,7 @@ export default function ProviderCard({
                 <button
                   type="button"
                   aria-label={t("pilotDeckConfig.panels.models.removeModelAria", { name: modelLabel(mid) })}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || ownBusy}
                   onClick={() => void openDeleteDialog("model", mid)}
                 >
                   <TrashIcon />
@@ -913,31 +687,37 @@ export default function ProviderCard({
                   <span title={testMessage}>{testMessage}</span>
                 </div>
               ) : null}
+              {tests.errorCode && <span role="status">{t(`pilotDeckConfig.panels.models.${tests.errorCode === "RATE_LIMITED" ? "testRateLimited" : tests.errorCode === "TEST_BUSY" ? "testBusy" : tests.errorCode === "STATUS_UNAVAILABLE" ? "testStatusUnavailable" : "testRequestFailed"}`)}</span>}
+              {activeTask && activeTask.providerId !== providerId && (
+                <span role="status">{t("pilotDeckConfig.panels.models.otherProviderTesting", { provider: activeTask.providerId })}</span>
+              )}
               <button
                 className={cn("test-button", testStatus)}
                 type="button"
-                disabled={testStatus === "testing" || testStatus === "manual" || testStatus === "savingTest" || saving}
-                onClick={() => void (testStatus === "saveError" && pendingTestSave
-                  ? persistPassingTest(pendingTestSave.data, pendingTestSave.provider)
-                  : testConnection())}
+                disabled={testDisabled || !configured}
+                onClick={() => void (testStatus === "saveError" && task ? tests.retry(task.id) : tests.start(providerId))}
               >
-                {testStatus === "savingTest"
-                  ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.savingTest")}</>
-                  : testStatus === "saveError"
-                    ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retryTestSave")}</>
-                  : testStatus === "testing"
-                  ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.testing")}</>
-                  : testStatus === "success"
-                    ? <><CheckCircleIcon /> {t("pilotDeckConfig.panels.models.connectionNormal")}</>
-                    : testStatus === "error"
-                      ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retest")}</>
-                      : <><PlugIcon /> {t("pilotDeckConfig.panels.models.testConnection")}</>}
+                {tests.checking ? t("pilotDeckConfig.panels.models.checkingTestStatus")
+                  : testStatus === "savingTest" ? t("pilotDeckConfig.panels.models.savingTest")
+                  : testStatus === "testing" ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.testing")}</>
+                  : testStatus === "cancelling" ? t("pilotDeckConfig.panels.models.cancellingTest")
+                  : testStatus === "manual" ? t("pilotDeckConfig.panels.models.awaitingImageConfirmation")
+                  : testStatus === "saveError" ? t("pilotDeckConfig.panels.models.retryTestSave")
+                  : testStatus === "success" ? <><CheckCircleIcon /> {t("pilotDeckConfig.panels.models.connectionNormal")}</>
+                  : testStatus === "error" || testStatus === "cancelled" ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retest")}</>
+                  : <><PlugIcon /> {t("pilotDeckConfig.panels.models.testConnection")}</>}
               </button>
-              {testStatus === "saveError" ? (
-                <button className="test-button" type="button" onClick={() => void testConnection()}>
+              {testStatus === "saveError" && (
+                <button className="test-button" type="button" disabled={testDisabled || !configured} onClick={() => void tests.start(providerId)}>
                   {t("pilotDeckConfig.panels.models.retest")}
                 </button>
-              ) : null}
+              )}
+              {task && ["testing", "manual"].includes(testStatus) && (
+                <button className="test-button" type="button" disabled={tests.pending} onClick={() => void tests.cancel(task.id)}>
+                  {t("pilotDeckConfig.panels.models.cancelTest")}
+                </button>
+              )}
+
             </div>
           </section>
         )}
@@ -945,8 +725,8 @@ export default function ProviderCard({
       {manualModelIds.length > 0 && (
         <ImageCapabilityModal
           modelIds={manualModelIds}
-          onCancel={cancelManualImageSupport}
-          onConfirm={(values) => void submitManualImageSupport(values)}
+          onCancel={() => { if (task && !tests.pending) void tests.cancel(task.id); }}
+          onConfirm={(values) => { if (task) void tests.confirm(task.id, values); }}
         />
       )}
       {deleteDialog && (

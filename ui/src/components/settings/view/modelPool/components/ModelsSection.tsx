@@ -79,9 +79,6 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
     await applyChange(patch(config, ["model", "providers"], next));
   };
 
-  const bindConnectionTest = async (testId: string): Promise<ConfigSaveResult> =>
-    applyChange(config, { modelTestBindings: [{ testId }] });
-
   const buildRenamedConfig = (oldId: string, newId: string) => {
     const id = newId.trim();
     if (!id || id === oldId) return { ok: true as const, config };
@@ -289,7 +286,6 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
           }}
           onCancelNew={discardPendingProvider}
           onPendingChange={setSelectedPending}
-          onBindConnectionTest={bindConnectionTest}
         />
       ) : (
         <section className="provider-detail empty" aria-label={t("pilotDeckConfig.panels.models.title")}>

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogProvider } from "../../../../../shared/catalogProviders";
 import ProviderCard from "./ProviderCard";
@@ -175,137 +175,54 @@ describe("ProviderCard connection badge", () => {
     expect(onPendingChange).toHaveBeenCalledWith(false);
   });
 
-  it("binds a passing connection test and then marks the provider connected", async () => {
-    const onBindConnectionTest = vi.fn().mockResolvedValue({ ok: true });
-    const onPendingChange = vi.fn();
-    mocks.authenticatedFetch.mockImplementation(async (url: string) => {
-      if (url === "/api/config/test-connections") {
-        return {
-          ok: true,
-          json: async () => ({
-            testId: "test_1",
-            status: "passed",
-            models: [{
-              modelId: "model-a",
-              textInput: "supported",
-              imageInput: "unsupported",
-            }],
-          }),
-        };
-      }
-      return { ok: true, json: async () => ({}) };
-    });
-
-    render(
-      <ProviderCard
-        providerId="openrouter"
-        provider={{
-          protocol: "openai",
-          url: "https://openrouter.ai/api/v1",
-          apiKey: "sk-test",
-          models: { "model-a": {} },
-        }}
-        catalogEntry={catalogEntry}
-        onSave={vi.fn()}
-        onRemove={vi.fn()}
-        onPendingChange={onPendingChange}
-        onBindConnectionTest={onBindConnectionTest}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }));
-
-    await waitFor(() => expect(onBindConnectionTest).toHaveBeenCalledWith("test_1"));
-    expect(screen.getByText("pilotDeckConfig.panels.models.configured")).toBeTruthy();
-    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  it("keeps test buttons disabled while status is unavailable and recovers by polling", async () => {
+    mocks.authenticatedFetch.mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ ok: true, json: async () => ({ tasks: [{ id: "task", providerId: "HXAPI", status: "testing" }] }) });
+    render(<ProviderCard providerId="HXAPI" provider={{ protocol: "openai", url: "https://example.test", apiKey: "********", models: { model: {} } }} onSave={vi.fn()} onRemove={vi.fn()} />);
+    await screen.findByText("pilotDeckConfig.panels.models.testStatusUnavailable");
+    expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.checkingTestStatus" }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.testing" }, { timeout: 3000 });
+    expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testing" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it.each(['automatic', 'manual', 'legacy'])('reports a failed save after %s probing and retries saving without another probe', async (mode) => {
-    let finishSave!: (value: { ok: boolean; error?: string }) => void;
-    const save = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }))
-      .mockResolvedValue({ ok: true });
-    const passing = { status: 'passed', testId: 'test_case', models: [{ modelId: 'model-a', textInput: 'supported', imageInput: 'unsupported' }] };
-    mocks.authenticatedFetch.mockImplementation(async (url: string) => {
-      if (url.includes('/image-capabilities')) return { ok: true, json: async () => passing };
-      if (url === '/api/config/test-connection') return { ok: true, json: async () => ({ ok: true, supportsImage: false }) };
-      if (mode === 'legacy') return { ok: false, status: 404, json: async () => ({}) };
-      return { ok: true, json: async () => mode === 'manual'
-        ? { ...passing, manualInputRequired: true, models: [{ modelId: 'model-a', textInput: 'supported', imageInput: 'unknown' }] }
-        : passing };
+  it("restores a running task after remount and disables testing on other providers", async () => {
+    let tasks: Array<Record<string, unknown>> = [];
+    mocks.authenticatedFetch.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") tasks = [{ id: "task-1", providerId: "HXAPI", status: "testing" }];
+      return { ok: true, json: async () => ({ tasks }) };
     });
-    render(<ProviderCard providerId="HXAPI" provider={{ protocol: 'openai', url: 'https://example.test', apiKey: '********', models: { 'model-a': {} } }}
-      onSave={save} onBindConnectionTest={save} onRemove={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.testConnection' }));
-    if (mode === 'manual') {
-      fireEvent.click(await screen.findByRole('radio', { name: 'connection.manualUnsupported' }));
-      fireEvent.click(screen.getByRole('button', { name: 'connection.manualConfirm' }));
-    }
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('pilotDeckConfig.panels.models.connectionNormal')).toBeNull();
-    expect((screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.savingTest' }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => { finishSave({ ok: false, error: 'Configuration does not match the tested provider.' }); });
-    expect(screen.getByText('pilotDeckConfig.panels.models.testSaveFailed')).toBeTruthy();
-    expect(screen.getByText('pilotDeckConfig.panels.models.configured')).toBeTruthy();
-    expect(screen.queryByText('pilotDeckConfig.panels.models.connectionNormal')).toBeNull();
-    const probeCalls = mocks.authenticatedFetch.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.retryTestSave' }));
-    await waitFor(() => expect(screen.getByText('pilotDeckConfig.panels.models.connectionNormal')).toBeTruthy());
-    expect(save).toHaveBeenCalledTimes(2);
-    expect(mocks.authenticatedFetch).toHaveBeenCalledTimes(probeCalls);
-    expect(screen.queryByText('pilotDeckConfig.panels.models.testSaveFailed')).toBeNull();
+    const provider = { protocol: "openai" as const, url: "https://example.test/v1", apiKey: "********", models: { model: {} } };
+    const props = { provider, onSave: vi.fn(), onRemove: vi.fn() };
+    const first = render(<ProviderCard providerId="HXAPI" {...props} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testing" }) as HTMLButtonElement).disabled).toBe(true));
+    first.unmount();
+    const other = render(<ProviderCard providerId="aicore" {...props} />);
+    expect(await screen.findByText("pilotDeckConfig.panels.models.otherProviderTesting")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }) as HTMLButtonElement).disabled).toBe(true);
+    other.unmount();
+    render(<ProviderCard providerId="HXAPI" {...props} />);
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.testing" });
+    tasks = [{ id: "task-1", providerId: "HXAPI", status: "savingTest" }];
+    await waitFor(() => expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.savingTest" }) as HTMLButtonElement).disabled).toBe(true), { timeout: 3000 });
+    tasks = [{ id: "task-1", providerId: "HXAPI", status: "success" }];
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.connectionNormal" }, { timeout: 3000 });
+    expect(mocks.authenticatedFetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
+    expect(props.onSave).not.toHaveBeenCalled();
   });
 
-  it("falls back to the legacy connection endpoint when the batch route is unavailable", async () => {
-    const onSave = vi.fn().mockResolvedValue({ ok: true });
-    mocks.authenticatedFetch.mockImplementation(async (url: string) => {
-      if (url === "/api/config/test-connections") {
-        return {
-          ok: false,
-          status: 404,
-          json: async () => ({ message: "API route not found" }),
-        };
-      }
-      if (url === "/api/config/test-connection") {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ ok: true, supportsImage: false }),
-        };
-      }
-      return { ok: true, status: 200, json: async () => ({}) };
+  it("restores save failures and retries server-side saving without starting a new test", async () => {
+    let tasks = [{ id: "task-1", providerId: "HXAPI", status: "saveError", message: "Save failed" }];
+    mocks.authenticatedFetch.mockImplementation(async (url) => {
+      if (url.endsWith("/retry")) tasks = [{ ...tasks[0], status: "success", message: "" }];
+      return { ok: true, json: async () => ({ tasks }) };
     });
-
-    render(
-      <ProviderCard
-        providerId="openrouter"
-        provider={{
-          protocol: "openai",
-          url: "https://openrouter.ai/api/v1",
-          apiKey: "sk-test",
-          models: { "model-a": {} },
-        }}
-        catalogEntry={catalogEntry}
-        onSave={onSave}
-        onRemove={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }));
-
-    await waitFor(() => expect(mocks.authenticatedFetch).toHaveBeenCalledWith(
-      "/api/config/test-connection",
-      expect.objectContaining({ method: "POST" }),
-    ));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
-      "openrouter",
-      expect.objectContaining({
-        models: {
-          "model-a": expect.objectContaining({
-            connectionTest: expect.objectContaining({ status: "passed" }),
-          }),
-        },
-      }),
-    ));
-    expect(screen.getByText("pilotDeckConfig.panels.models.connectionNormal")).toBeTruthy();
+    render(<ProviderCard providerId="HXAPI" provider={{ protocol: "openai", url: "https://example.test", apiKey: "********", models: { model: {} } }} onSave={vi.fn()} onRemove={vi.fn()} />);
+    await screen.findByText("pilotDeckConfig.panels.models.testSaveFailed");
+    expect(screen.queryByRole("button", { name: "pilotDeckConfig.panels.models.connectionNormal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "pilotDeckConfig.panels.models.retryTestSave" }));
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.connectionNormal" });
+    expect(mocks.authenticatedFetch).toHaveBeenCalledWith("/api/config/connection-test-tasks/task-1/retry", expect.objectContaining({ method: "POST" }));
   });
 });

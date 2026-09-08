@@ -8203,3 +8203,16 @@
   background: #292936;
   color: #e4e4e7;
 }
+
+:where(.pilotdeck-settings-app) .detail-test-section .test-button:disabled {
+  background: var(--settings-bg-secondary, #f3f4f6);
+  border-color: var(--settings-border, #e5e7eb);
+  color: var(--settings-text-muted, #9ca3af);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.dark :where(.pilotdeck-settings-app) .detail-test-section .test-button:disabled {
+  background: #27272a;
+  border-color: #3f3f46;
+  color: #a1a1aa;
+}
