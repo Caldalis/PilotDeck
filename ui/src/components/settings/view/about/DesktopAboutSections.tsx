@@ -7,7 +7,7 @@ import type { AboutSectionsProps } from ".";
 const busyStates = new Set(["checking", "downloading", "verifying", "installing", "recovering"]);
 const buttonClass = "rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground";
 
-export default function DesktopAboutSections({ title, versionInfo, checkingVersion }: AboutSectionsProps) {
+export default function DesktopAboutSections({ versionInfo, checkingVersion }: AboutSectionsProps) {
   const { t } = useTranslation("settings");
   const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
   const [pending, setPending] = useState(false);
@@ -59,7 +59,6 @@ export default function DesktopAboutSections({ title, versionInfo, checkingVersi
 
   return (
     <div className="space-y-8">
-      <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
       <SettingsCard className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 text-sm">
           <div className="flex flex-wrap items-center gap-2">

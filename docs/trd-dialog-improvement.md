@@ -216,7 +216,6 @@ type UploadedAttachmentRef = {
 `GET /api/models?query=&provider=&includeAuto=`
 
 模型目录直接读取全局配置，不枚举项目或会话；旧客户端传入的 `projectKey` 仅为兼容保留。返回 `defaultSelection` 明确指定系统默认模型，目录顺序不影响选择。
-
 返回 provider、model、displayName、available 以及 reasoning（推理强度）、temperature 和可选 speed 的能力声明。对话框统一使用 0..1 的数值语义；每个模型可通过能力声明限制可用范围、步长或枚举值，后端负责把 0..1 值映射为 Provider 所需参数。temperature 和 speed 统一范围为 0..1。官方 OpenAI / Anthropic 模型默认声明 speed；自定义模型需显式 `supportsSpeed: true`，且 Google Provider 当前不支持该字段。目录将 speed 暴露为枚举 `0`（标准）与 `1`（快速）。
 
 协议默认将未显式声明的模型视为支持 reasoning；模型可通过 `capabilities.supportsThinking: false` 关闭。speed 对官方 OpenAI / Anthropic 默认开启，其他模型通过 `capabilities.supportsSpeed: true` 显式开启。

@@ -158,6 +158,9 @@ export type ComposerV2Props = {
   modelSelection: ChatModelSelection | null;
   isModelCatalogLoading?: boolean;
   isModelSelectionReady?: boolean;
+  isPermissionModeReady?: boolean;
+  permissionModeError?: string | null;
+  onRetryPermissionMode?: () => void;
   canSubmitWithoutModel?: boolean;
   modelCatalogError?: string | null;
   projectKey: string;
@@ -513,6 +516,9 @@ export default function ComposerV2({
   modelSelection,
   isModelCatalogLoading = false,
   isModelSelectionReady = true,
+  isPermissionModeReady = true,
+  permissionModeError,
+  onRetryPermissionMode,
   canSubmitWithoutModel = false,
   modelCatalogError,
   projectKey,
@@ -651,7 +657,7 @@ export default function ComposerV2({
   const hasUploadingImages = [...uploadingImages.values()].some((percent) => percent < 100);
   const attachmentLimitError = imageErrors.get(MAX_ATTACHMENTS_ERROR_KEY);
   const modelBlocksSubmission = !isModelSelectionReady && !canSubmitWithoutModel;
-  const disabled = !hasDraftContent || isSubmitPending || hasUploadingImages || modelBlocksSubmission;
+  const disabled = !hasDraftContent || isSubmitPending || hasUploadingImages || modelBlocksSubmission || !isPermissionModeReady;
   const primaryAction = getComposerPrimaryAction({
     isLoading,
     isInputQueuePaused,
@@ -747,6 +753,14 @@ export default function ComposerV2({
     >
       <div className={cn("min-w-0", chromeless ? "" : "mx-auto max-w-[860px]")}>
         {queueTray}
+        {permissionModeError ? (
+          <div role="alert" className="mb-3 text-sm text-red-600">
+            {t('input.permissions.saveFailed', { defaultValue: 'Unable to load or save permissions. Please retry before sending.' })}
+            <button type="button" className="ml-2 underline" onClick={onRetryPermissionMode}>
+              {t('input.permissions.retry', { defaultValue: 'Retry' })}
+            </button>
+          </div>
+        ) : null}
         {pendingPermissionRequests.length > 0 ? (
           <div className="mb-3">
             <PermissionRequestsBanner
@@ -761,7 +775,7 @@ export default function ComposerV2({
         {!hasBlockingPermissionPanel ? (
           <form
             onSubmit={(event) => {
-              if (modelBlocksSubmission) { event.preventDefault(); return; }
+              if (modelBlocksSubmission || !isPermissionModeReady) { event.preventDefault(); return; }
               if (showWorkspacePicker && !workspaceSelectedProject) {
                 event.preventDefault();
                 setWorkspaceMenuForceOpen(true);

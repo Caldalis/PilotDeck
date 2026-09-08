@@ -304,7 +304,7 @@ function parseTokenSaver(
     });
     return undefined;
   }
-  const tiers: Record<string, { model: RouterModelRef; description?: string }> = {};
+  const tiers: Record<string, { model: RouterModelRef; label?: string; description?: string }> = {};
   for (const [name, body] of Object.entries(tiersRaw)) {
     if (!isRecord(body)) {
       diagnostics.push({
@@ -321,6 +321,7 @@ function parseTokenSaver(
     }
     tiers[name] = {
       model: ref,
+      label: typeof body.label === "string" ? body.label : undefined,
       description: typeof body.description === "string"
         ? body.description
         : DEFAULT_TIER_DESCRIPTIONS[name],

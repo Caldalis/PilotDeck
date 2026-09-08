@@ -66,6 +66,7 @@ interface UseChatComposerStateArgs {
   model: string;
   modelSelection?: ChatModelSelection | null;
   isModelSelectionReady?: boolean;
+  isPermissionModeReady?: boolean;
   permissionMode: PermissionMode | string;
   basePermissionMode?: PermissionMode | string;
   runMode?: string;
@@ -263,6 +264,7 @@ export function useChatComposerState({
   model,
   modelSelection,
   isModelSelectionReady = true,
+  isPermissionModeReady = true,
   permissionMode,
   basePermissionMode,
   runMode,
@@ -1128,6 +1130,7 @@ export function useChatComposerState({
     ) => {
       event.preventDefault();
       const submitCommand = getSubmittedCommand(inputValueRef.current, selectedCommands, slashCommands);
+      if (!isPermissionModeReady) return;
       if (!isModelSelectionReady && (skipSlashDetectionOnceRef.current || !isModelIndependentCommand(submitCommand))) return;
       const submittedModelSelection = modelSelection ? { ...modelSelection } : undefined;
       const currentInput = inputValueRef.current;
@@ -1212,7 +1215,7 @@ export function useChatComposerState({
 
       // Custom commands can expand and re-enter this handler. They still need
       // a usable model before entering the normal/queued submission path.
-      if (!isModelSelectionReady) return;
+      if (!isModelSelectionReady || !isPermissionModeReady) return;
       const userVisibleInput = currentInput.trim()
         || (hasDocumentReferences
           ? referenceOnlyPrompt
@@ -1554,6 +1557,7 @@ export function useChatComposerState({
       model,
       modelSelection,
       isModelSelectionReady,
+      isPermissionModeReady,
       currentSessionId,
       executeCommand,
       isLoading,

@@ -45,6 +45,7 @@ assertRequiredPilotDeckEnv();
 console.log('SERVER_PORT from runtime config:', process.env.SERVER_PORT);
 
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { WebSocketServer, WebSocket } from 'ws';
 import bcrypt from 'bcrypt';
 import os from 'os';
@@ -59,6 +60,7 @@ import JSZip from 'jszip';
 import { readPermissionSettings } from './services/permissionSettings.js';
 import { regenerateLastMessageTransaction } from './services/regenerateLastMessage.js';
 import { getDefaultPtyShell } from './utils/defaultShell.js';
+import { pickNativeFolder } from './utils/nativeFolderPicker.js';
 import { getOpenUrlSpawnCommand } from './utils/processSpawn.js';
 
 import { getProjects, getProjectCronJobsOverview, getSessions, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache, searchConversations } from './projects.js';
@@ -1304,6 +1306,17 @@ const officePreviewPdfRateLimiter = createRouteRateLimiter({
     message: 'Too many Office preview conversion requests',
 });
 
+const nativeFolderPickerRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        error: 'Too many native folder picker requests',
+        code: 'RATE_LIMITED',
+    },
+});
+
 async function addDirectoryToZip(zip, directoryPath, rootPath) {
     const entries = await fsPromises.readdir(directoryPath, { withFileTypes: true });
 
@@ -1428,6 +1441,24 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error browsing filesystem:', error);
         res.status(500).json({ error: 'Failed to browse filesystem' });
+    }
+});
+
+app.post('/api/browse-filesystem/native-folder', nativeFolderPickerRateLimiter, authenticateToken, async (req, res) => {
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    try {
+        const pickedPath = await pickNativeFolder();
+        if (!pickedPath) {
+            return res.json({ cancelled: true });
+        }
+        return res.json({ path: pickedPath });
+    } catch (error) {
+        console.error('Error opening native folder dialog:', error);
+        res.status(500).json({
+            error: error instanceof Error ? error.message : 'Failed to open native folder dialog',
+        });
     }
 });
 
@@ -3569,6 +3600,18 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
         console.error('Error reading session token usage:', error);
         res.status(500).json({ error: 'Failed to read session token usage' });
     }
+});
+
+// API requests must never fall through to the SPA shell. Returning index.html
+// with HTTP 200 hides missing/stale backend routes and makes JSON clients show
+// an empty result instead of a useful error.
+app.use('/api', (req, res) => {
+    res.status(404).json({
+        error: {
+            code: 'API_ROUTE_NOT_FOUND',
+            message: `API route not found: ${req.method} ${req.originalUrl}`,
+        },
+    });
 });
 
 // Serve React app for all other routes (excluding static files)

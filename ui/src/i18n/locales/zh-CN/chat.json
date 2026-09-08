@@ -319,7 +319,9 @@
       "defaultDescription": "需要风险操作时先询问",
       "bypassPermissions": "完全访问权限",
       "bypassPermissionsDescription": "跳过确认并允许完全访问",
-      "change": "选择权限模式"
+      "change": "选择权限模式",
+      "saveFailed": "权限设置读取或保存失败，请重试后再发送。",
+      "retry": "重试"
     },
     "runModes": {
       "agent": "智能体",

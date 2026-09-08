@@ -4,7 +4,7 @@ import { MessageSquare } from 'lucide-react';
 import { useTasksSettings } from '../../contexts/TasksSettingsContext';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../utils/api';
-import type { ChatInterfaceProps, ChatMessage, ChatRunMode, Provider } from '../chat/types/types';
+import type { ChatInterfaceProps, ChatMessage, ChatRunMode, PermissionMode, Provider } from '../chat/types/types';
 import {
   getSessionRequestParams,
   isReadOnlySession,
@@ -144,6 +144,9 @@ function ChatInterfaceV2({
     modelCatalogError,
     thinkingModelContext,
     permissionMode,
+    isPermissionModeReady,
+    permissionModeError,
+    reloadPermissionMode,
     setPermissionMode: setPermissionModeRaw,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -162,13 +165,9 @@ function ChatInterfaceV2({
     });
   }, []);
 
-  const selectPermissionMode = useCallback((mode: typeof permissionMode) => {
-    setPermissionModeRaw(mode);
-    localStorage.setItem('permissionMode-default', mode);
-    if (selectedSession?.id) {
-      localStorage.setItem(`permissionMode-${selectedSession.id}`, mode);
-    }
-  }, [setPermissionModeRaw, selectedSession?.id]);
+  const selectPermissionMode = useCallback((mode: PermissionMode) => {
+    void setPermissionModeRaw(mode).catch(() => {});
+  }, [setPermissionModeRaw]);
 
   const effectivePermissionMode =
     runMode === 'plan' ? 'plan' : permissionMode;
@@ -305,6 +304,7 @@ function ChatInterfaceV2({
     model,
     modelSelection,
     isModelSelectionReady,
+    isPermissionModeReady,
     runMode,
     permissionMode: effectivePermissionMode,
     basePermissionMode: permissionMode,
@@ -566,6 +566,7 @@ function ChatInterfaceV2({
       throw new Error(t('edit.missingTarget', { defaultValue: 'The last message can no longer be edited.' }));
     }
 
+    if (!isPermissionModeReady) throw new Error(permissionModeError || "Permission preference is still loading.");
     if (!isModelSelectionReady || !modelSelection) throw new Error(modelCatalogError || "Model selection is still loading.");
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const references = attachments
@@ -636,6 +637,8 @@ function ChatInterfaceV2({
   }, [
     currentSessionId,
     isModelSelectionReady,
+    isPermissionModeReady,
+    permissionModeError,
     modelSelection,
     modelCatalogError,
     effectivePermissionMode,
@@ -781,6 +784,9 @@ function ChatInterfaceV2({
       modelSelection={modelSelection}
       isModelCatalogLoading={isModelCatalogLoading}
       isModelSelectionReady={isModelSelectionReady}
+      isPermissionModeReady={isPermissionModeReady}
+      permissionModeError={permissionModeError}
+      onRetryPermissionMode={reloadPermissionMode}
       canSubmitWithoutModel={canSubmitWithoutModel}
       modelCatalogError={modelCatalogError}
       projectKey={selectedProject?.fullPath || selectedProject?.path || ''}

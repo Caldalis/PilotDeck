@@ -1,7 +1,7 @@
 import type { ChatModelSelection } from '../hooks/useChatProviderState';
 import type { Project, ProjectSession } from '../../../types/app';
 import type { ChatAttachment, ChatRunMode, PilotDeckSettings, PermissionMode } from '../types/types';
-import { getPilotDeckSettings, safeLocalStorage } from './chatStorage';
+import { getPilotDeckSettings } from './chatStorage';
 
 type StartSessionOptions = {
   sendMessage: (message: unknown) => boolean | void;
@@ -47,11 +47,6 @@ type RegenerateLastSessionOptions = Omit<
   displayAttachments?: ChatAttachment[];
 };
 
-const VALID_PERMISSION_MODES = new Set<PermissionMode>([
-  'default',
-  'bypassPermissions',
-  'plan',
-]);
 let fallbackRunIdCounter = 0;
 
 export const isTemporarySessionId = (sessionId: string | null | undefined) =>
@@ -98,21 +93,6 @@ export function getNotificationSessionSummary(
     ? `${normalizedFallback.slice(0, 77)}...`
     : normalizedFallback;
 }
-export function getStoredPermissionMode(
-  selectedSession: ProjectSession | null,
-): PermissionMode {
-  if (!selectedSession?.id) {
-    return 'default';
-  }
-
-  const stored = safeLocalStorage.getItem(`permissionMode-${selectedSession.id}`);
-  if (stored && VALID_PERMISSION_MODES.has(stored as PermissionMode)) {
-    return stored as PermissionMode;
-  }
-
-  return 'default';
-}
-
 export function getSelectedProjectPath(selectedProject: Project): string {
   return selectedProject.fullPath || selectedProject.path || '';
 }

@@ -804,9 +804,8 @@ function normalizeRunMode(value) {
 
 export function resolvePermissionMode(options, readPersisted = readPermissionSettings) {
     const explicit = normalizePermissionMode(options?.permissionMode || options?.mode);
-    // The composer permission picker is a per-turn choice. In particular,
-    // selecting "default" must be able to turn off a persisted full-access
-    // preference for this turn.
+    // The composer sends a snapshot of the global preference (or a plan
+    // override). Later preference changes must not alter an already submitted turn.
     if (explicit) return explicit;
     const persisted = readPersisted();
     if (persisted.skipPermissions === true) {

@@ -10,7 +10,9 @@ type AgentScheduleSectionsProps = {
   title: string;
 };
 
-export default function AgentScheduleSections({ title }: AgentScheduleSectionsProps) {
+export default function AgentScheduleSections({
+  title: _title,
+}: AgentScheduleSectionsProps) {
   const { t } = useTranslation("settings");
   const { raw, commitRaw, loading, error } = usePilotDeckConfig();
   const parsedConfig = useMemo(() => safeParseYaml(raw), [raw]);
@@ -25,8 +27,7 @@ export default function AgentScheduleSections({ title }: AgentScheduleSectionsPr
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+      <div className="scheduled-page-content">
         <div className="py-6 text-xs text-muted-foreground">
           {t("pilotDeckConfig.loading")}
         </div>
@@ -36,8 +37,7 @@ export default function AgentScheduleSections({ title }: AgentScheduleSectionsPr
 
   if (!parsedConfig) {
     return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+      <div className="scheduled-page-content">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {t("settingsPage.invalidYaml.agentSchedule")}
         </div>
@@ -46,8 +46,7 @@ export default function AgentScheduleSections({ title }: AgentScheduleSectionsPr
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+    <div className="scheduled-page-content">
       <ConfigSaveError error={error} />
       <CronSection config={parsedConfig} onChange={onFormChange} />
     </div>

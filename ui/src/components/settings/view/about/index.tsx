@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { authenticatedFetch } from "../../../../utils/api";
 import { restartAndReload, type RestartUiStatus } from "../../../../utils/restartUi";
 import { cn } from "../../../../lib/utils";
-import type { DesktopVersionCheckResult } from "../../Settings";
+import type { DesktopVersionCheckResult } from "../../version";
 import DesktopAboutSections from "./DesktopAboutSections";
 import { SettingsCard } from "../../shared/view";
 import { readWebUpdateTerminalStatus } from "./updateActions";
@@ -13,6 +13,7 @@ export type AboutSectionsProps = {
   title: string;
   versionInfo: DesktopVersionCheckResult;
   checkingVersion: boolean;
+  onRestartConfirmed?: () => void;
 };
 
 type LocalUpdateResult =
@@ -59,9 +60,10 @@ export default function AboutSections(props: AboutSectionsProps) {
 }
 
 function WebAboutSections({
-  title,
+  title: _title,
   versionInfo,
   checkingVersion,
+  onRestartConfirmed,
 }: AboutSectionsProps) {
   const { t } = useTranslation("settings");
   const [webUpdating, setWebUpdating] = useState(false);
@@ -238,7 +240,10 @@ function WebAboutSections({
           description: t("about.restartWaitingDescription"),
         },
         onStatusChange: (status) => {
-          if (status === "confirmed") return;
+          if (status === "confirmed") {
+            onRestartConfirmed?.();
+            return;
+          }
           setRestartStatus(status);
           if (status !== "restarting") setInstalling(false);
         },
@@ -273,9 +278,7 @@ function WebAboutSections({
   const statusIconClass = "h-3.5 w-3.5";
 
   return (
-    <div className="space-y-8">
-      <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
-
+    <div className="about-page-content">
       <SettingsCard className="overflow-hidden">
         <div className="grid min-h-[64px] grid-cols-1 sm:grid-cols-[1fr_auto] lg:grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4">
           <div className="min-w-0 text-sm text-foreground">

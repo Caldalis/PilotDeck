@@ -383,6 +383,9 @@ function validateRouterModelRefs(config, errors) {
         continue;
       }
       validateRequiredModelRef(config, tier.model, `router.tokenSaver.tiers.${key}.model`, errors);
+      if (tier.label !== undefined && typeof tier.label !== 'string') {
+        errors.push(`router.tokenSaver.tiers.${key}.label must be a string`);
+      }
       if (tier.description !== undefined && typeof tier.description !== 'string') {
         errors.push(`router.tokenSaver.tiers.${key}.description must be a string`);
       }

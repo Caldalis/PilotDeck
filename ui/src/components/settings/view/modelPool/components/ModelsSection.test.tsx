@@ -61,7 +61,7 @@ describe("model provider drafts", () => {
     );
 
     fireEvent.click(screen.getByRole("button", {
-      name: "settingsPage.actions.save",
+      name: "actions.saveChanges",
     }));
 
     expect(onSave).not.toHaveBeenCalled();
@@ -89,10 +89,10 @@ describe("model provider drafts", () => {
     );
 
     expect((screen.getByRole("button", {
-      name: "Fetch API models",
+      name: "pilotDeckConfig.panels.models.fetchApiModels",
     }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", {
-      name: "settingsPage.actions.save",
+      name: "actions.saveChanges",
     }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -118,7 +118,9 @@ describe("model provider drafts", () => {
     fireEvent.change(screen.getByDisplayValue("openai"), {
       target: { value: "anthropic" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Fetch API models" }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "pilotDeckConfig.panels.models.fetchApiModels",
+    }));
 
     await waitFor(() => expect(mocks.fetchProviderModels).toHaveBeenCalledWith({
       providerId: "anthropic",
@@ -150,7 +152,7 @@ describe("model provider drafts", () => {
     );
 
     const saveButton = screen.getByRole("button", {
-      name: "settingsPage.actions.save",
+      name: "actions.saveChanges",
     });
     fireEvent.click(saveButton);
     fireEvent.click(saveButton);
@@ -158,7 +160,57 @@ describe("model provider drafts", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     finish({ ok: true });
     await waitFor(() => expect(screen.queryByRole("button", {
-      name: "settingsPage.actions.save",
+      name: "actions.saveChanges",
     })).toBeNull());
+  });
+});
+
+const passingTest = {
+  status: "passed",
+  textInput: "supported",
+  imageInput: "supported",
+};
+
+describe("model provider connection status", () => {
+  it("shows pending status until every enabled model passes", () => {
+    const { rerender } = render(
+      <ModelsSection
+        config={{
+          model: {
+            providers: {
+              openrouter: {
+                apiKey: "sk-test",
+                models: { "model-a": {} },
+              },
+            },
+          },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText(
+      "pilotDeckConfig.panels.models.pending",
+    )).toBeTruthy();
+
+    rerender(
+      <ModelsSection
+        config={{
+          model: {
+            providers: {
+              openrouter: {
+                apiKey: "sk-test",
+                models: { "model-a": { connectionTest: passingTest } },
+              },
+            },
+          },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByLabelText(
+      "pilotDeckConfig.panels.models.pending",
+    )).toBeNull();
   });
 });
