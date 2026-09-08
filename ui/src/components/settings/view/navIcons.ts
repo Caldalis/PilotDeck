@@ -11,7 +11,6 @@ import backIcon from "../assets/nav/back.svg?raw";
 import configIcon from "../assets/nav/config.svg?raw";
 import generalIcon from "../assets/nav/general.svg?raw";
 import integrationsIcon from "../assets/nav/integrations.svg?raw";
-import localReadyIcon from "../assets/nav/local-ready.svg?raw";
 import mcpIcon from "../assets/nav/mcp.svg?raw";
 import modelPoolIcon from "../assets/nav/model-pool.svg?raw";
 import officeIcon from "../assets/nav/office.svg?raw";
@@ -19,7 +18,6 @@ import privacyIcon from "../assets/nav/privacy.svg?raw";
 
 export const SETTINGS_BACK_ICON = backIcon;
 export const SETTINGS_CONFIG_ICON = configIcon;
-export const SETTINGS_LOCAL_READY_ICON = localReadyIcon;
 
 export const SETTINGS_NAV_ICONS: Partial<Record<SettingsMenuKey, string>> = {
   general: generalIcon,

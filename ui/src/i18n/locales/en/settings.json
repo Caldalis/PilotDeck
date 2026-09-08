@@ -97,10 +97,6 @@
       "advanced": "Manage application retry, service, and environment variable settings.",
       "about": "View the current version and check for updates."
     },
-    "status": {
-      "localReady": "Local secure storage",
-      "localReadyDetail": "Settings are stored on this machine and apply immediately"
-    },
     "titles": {
       "general": "General",
       "modelPool": "Model Pool",

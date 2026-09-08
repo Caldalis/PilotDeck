@@ -5,7 +5,6 @@ import pilotdeckLogoLight from "../../../assets/pilotdeck-wordmark-light.png";
 import type { SettingsMenuKey } from "../types";
 import {
   SETTINGS_BACK_ICON,
-  SETTINGS_LOCAL_READY_ICON,
   SETTINGS_NAV_ICONS,
 } from "./navIcons";
 
@@ -165,11 +164,6 @@ export default function SettingsSidebar({
           </div>
         </section>
       </nav>
-
-      <div className="sidebar-footer">
-        <SettingsIcon svg={SETTINGS_LOCAL_READY_ICON} />
-        <strong>{t("settingsPage.status.localReady")}</strong>
-      </div>
     </aside>
   );
 }

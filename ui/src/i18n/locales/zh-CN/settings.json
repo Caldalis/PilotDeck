@@ -97,10 +97,6 @@
       "advanced": "管理应用级的重试、服务与环境变量配置。",
       "about": "查看当前版本并检查更新。"
     },
-    "status": {
-      "localReady": "本地安全存储",
-      "localReadyDetail": "配置保存在本机，修改后立即生效"
-    },
     "titles": {
       "general": "通用",
       "modelPool": "模型池",
