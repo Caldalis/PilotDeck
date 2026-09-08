@@ -24,6 +24,7 @@ import {
   clearProviderConnectionTests,
   isProviderConfigured,
   isProviderPending,
+  isProviderUrlValid,
 } from "../utils/providerStatus";
 import ImageCapabilityModal from "../../../../onboarding/view/subcomponents/ImageCapabilityModal";
 import DeleteConfirmationModal, {
@@ -197,6 +198,10 @@ export default function ProviderCard({
     }
     if (!effectiveUrl.trim()) {
       setProviderIdError(t("pilotDeckConfig.panels.models.providerUrlRequired"));
+      return;
+    }
+    if (!isProviderUrlValid(effectiveUrl)) {
+      setProviderIdError(t("pilotDeckConfig.panels.models.providerUrlInvalid"));
       return;
     }
     if (providerRequiresApiKeyInForm && !draftProvider.apiKey?.trim()) {

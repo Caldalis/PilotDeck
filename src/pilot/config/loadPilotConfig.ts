@@ -600,7 +600,17 @@ function parseModel(
   diagnostics: PilotConfigDiagnostic[],
 ) {
   try {
-    return parseModelConfig(rawModel, { env });
+    return parseModelConfig(rawModel, {
+      env,
+      onInvalidProvider: (providerId, error) => diagnostics.push({
+        code: `MODEL_${error.code.toUpperCase()}`,
+        severity: "warning",
+        message: error.message,
+        path: `model.providers.${providerId}`,
+        hint: "This provider was excluded from the runtime. Correct its settings to enable it.",
+        recoverable: true,
+      }),
+    });
   } catch (error) {
     if (error instanceof ModelConfigError) {
       diagnostics.push({

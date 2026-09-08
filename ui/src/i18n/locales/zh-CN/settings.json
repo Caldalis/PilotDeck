@@ -1,4 +1,5 @@
 {
+  "openModelSettings": "打开模型设置",
   "title": "设置",
   "tabs": {
     "account": "账户",
@@ -980,6 +981,7 @@
         "searchProviders": "搜索提供商",
         "noMatchingProviders": "没有匹配的提供商",
         "providerIdInvalid": "Provider ID 只能包含 1–64 位字母、数字、下划线或连字符，且不能包含空格。",
+        "providerUrlInvalid": "请输入合法的 HTTP 或 HTTPS 供应商地址。",
         "providerUrlRequired": "请填写接口地址。",
         "providerApiKeyRequired": "该提供商需要填写 API 密钥。",
         "providerModelRequired": "保存前请至少启用或添加一个模型。",

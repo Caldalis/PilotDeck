@@ -69,12 +69,26 @@ home's `permissions.json`:
   closed, grey disabled test buttons, save-failure recovery, cancellation and manual
   image confirmation across navigation.
 
+## Invalid provider recovery
+
+- Provider saves reject malformed URLs and schemes other than HTTP/HTTPS before
+  writing, in both the settings form and config API. Connection tests remain optional;
+  URL syntax validation does not verify credentials or contact the provider.
+- The runtime excludes providers that fail model configuration parsing and records
+  a warning, without deleting their stored settings. Valid providers can still run.
+  References to an excluded provider remain errors; the primary model is never
+  silently switched to another provider.
+- Authenticated users can always enter Settings to repair configuration, even when
+  the Gateway cannot start. The model configuration error screen links to Model Pool.
+- Isolated Chromium checks cover an invalid unused provider with a healthy Gateway,
+  rejected saves without file changes, and restarting with an invalid primary
+  provider then repairing it through Settings without model API calls.
+
 ## Validation
 
-- Web Regression's local suite: **168 files, 1,363 tests passed** with the same
+- Web Regression's local suite: **169 files, 1,373 tests passed** with the same
   existing CI exclusions for Playwright E2E, streamSmoother and desktop network tests.
-- The final local run hit one transient loopback `ECONNRESET` in the unchanged
-  cron route suite; its 14 tests passed on a focused rerun.
+- Model parsing and Pilot config loading tests: **18 passed**.
 - Desktop packaging helper tests: **41 passed**; desktop updater network tests passed.
 - Permission settings and router parsing tests: **8 passed**.
 - UI type checking, Gateway/Web production builds and Electron TypeScript compile passed.

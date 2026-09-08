@@ -23,13 +23,13 @@ export default function App() {
               <PluginsProvider>
                 <TasksSettingsProvider>
                   <TaskMasterProvider>
-                    <ProtectedRoute>
-                      <Router basename={window.__ROUTER_BASENAME__ || ''}>
+                    <Router basename={window.__ROUTER_BASENAME__ || ''}>
+                      <ProtectedRoute>
                         <Routes>
                           <Route path="*" element={<AppShellV2 />} />
                         </Routes>
-                      </Router>
-                    </ProtectedRoute>
+                      </ProtectedRoute>
+                    </Router>
                   </TaskMasterProvider>
                 </TasksSettingsProvider>
               </PluginsProvider>

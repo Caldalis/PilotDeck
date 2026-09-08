@@ -1,4 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import type { ModelConfigurationState } from '../types';
 import AuthScreenLayout from './AuthScreenLayout';
 
@@ -11,6 +13,7 @@ export default function ModelConfigurationErrorScreen({
   configuration,
   onRetry,
 }: ModelConfigurationErrorScreenProps) {
+  const { t } = useTranslation('settings');
   const errors = configuration.state === 'invalid'
     ? configuration.errors
     : [configuration.error];
@@ -34,6 +37,9 @@ export default function ModelConfigurationErrorScreen({
             </p>
           ))}
         </div>
+        <Link className="block text-center text-primary underline" to="/settings/models">
+          {t('openModelSettings')}
+        </Link>
         <button
           type="button"
           className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"

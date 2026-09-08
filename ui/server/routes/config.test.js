@@ -593,6 +593,17 @@ describe('config model-list route', () => {
 });
 
 describe('config model-pool connection test routes', () => {
+  it.each(['aaa', 'file:///tmp/model'])('rejects provider URL %s before writing and preserves the working config', async (url) => {
+    const initial = { schemaVersion: 1, agent: { model: 'good/model' }, model: { providers: { good: { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: {} } } } } };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial));
+    const before = readFileSync(configPath, 'utf8');
+    const next = structuredClone(initial);
+    next.model.providers.bad = { protocol: 'openai', url, apiKey: 'key', models: { bad: {} } };
+    const result = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(result.status).toBe(400);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
   it.each(['unrelated edit', 'credential edit'])('runs a detached task against the latest config after %s', async (change) => {
     let finish;
     const waiting = new Promise(resolve => { finish = resolve; });

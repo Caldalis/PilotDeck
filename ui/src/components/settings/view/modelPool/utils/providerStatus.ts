@@ -19,11 +19,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+export function isProviderUrlValid(value: string): boolean {
+  try { return ['http:', 'https:'].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
 /** Completeness is independent of the optional connection probe. */
 export function isProviderConfigured(provider: V2Provider, catalogEntry?: CatalogProvider): boolean {
   return Boolean(
     (provider.protocol || catalogEntry?.protocol)?.trim()
-    && (provider.url || catalogEntry?.defaultUrl)?.trim()
+    && isProviderUrlValid(provider.url || catalogEntry?.defaultUrl || '')
     && (providerHasCredential(provider, catalogEntry) || catalogEntry?.apiKeyEnvVar)
     && Object.keys(provider.models ?? {}).some((id) => id.trim()),
   );

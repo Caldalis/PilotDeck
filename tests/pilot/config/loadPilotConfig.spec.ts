@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -102,4 +102,28 @@ test("PilotConfigStore watches the configured custom path", async () => {
     stopWatching?.();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test("invalid unused providers are isolated from the Gateway without deleting their settings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pilotdeck-provider-isolation-"));
+  const path = join(dir, "pilotdeck.yaml");
+  const raw = configYaml("model-a") + `
+    broken:
+      protocol: openai
+      url: aaa
+      apiKey: bad
+      models:
+        bad: {}
+`;
+  try {
+    writeFileSync(path, raw);
+    const snapshot = loadPilotConfig({ configPath: path, env: {} });
+    assert.equal(snapshot.config.agent.model.id, "custom/model-a");
+    assert.equal(snapshot.config.model.providers.broken, undefined);
+    assert.ok(snapshot.diagnostics.some(d => d.path === "model.providers.broken" && d.severity === "warning"));
+    assert.equal(readFileSync(path, "utf8"), raw);
+    writeFileSync(path, raw.replace("custom/model-a", "broken/bad"));
+    assert.throws(() => loadPilotConfig({ configPath: path, env: {} }));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

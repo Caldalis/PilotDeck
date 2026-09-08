@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -55,6 +55,19 @@ function useTempConfig(contents) {
 }
 
 describe('model configuration state', () => {
+  it('quarantines an invalid unused provider without rewriting the file or changing the primary model', () => {
+    const config = configuredModel();
+    config.schemaVersion = 1;
+    config.model.providers.test = { protocol: 'openai', url: 'aaa', apiKey: 'bad-key', models: { bad: {} } };
+    const path = useTempConfig(JSON.stringify(config));
+    const before = readFileSync(path, 'utf8');
+    expect(getModelConfigurationState({ env: {} })).toMatchObject({ state: 'ready', modelRef: 'custom/model-a', providerErrors: { test: expect.any(String) } });
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    config.agent.model = 'test/bad';
+    writeFileSync(path, JSON.stringify(config));
+    expect(getModelConfigurationState({ env: {} }).state).toBe('invalid');
+  });
+
   it('does not create a config file while detecting first-run state', () => {
     const configPath = useTempConfig(null);
 

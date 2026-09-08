@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parseModelConfig } from '../../../src/model/config/parseModelConfig.js';
 import { loadPilotConfig } from '../../../src/pilot/config/loadPilotConfig.js';
 import {
   configRevision,
@@ -121,7 +122,26 @@ export function evaluateModelConfigurationState(record, options = {}) {
     return needsConfiguration(record, 'missing_credential');
   }
 
-  const validation = validatePilotDeckConfig(effectiveConfig);
+  // A malformed unused provider must not prevent valid providers from running.
+  // Keep the original file intact so Settings can display and repair it.
+  const providerErrors = {};
+  let parsedModel;
+  try {
+    parsedModel = parseModelConfig(effectiveConfig.model, {
+      env,
+      onInvalidProvider: (id, error) => { providerErrors[id] = error.message; },
+    });
+  } catch (error) { return invalidConfiguration(record, [error.message]); }
+  if (!parsedModel.providers[selected.providerId]) {
+    return invalidConfiguration(record, [providerErrors[selected.providerId] || 'Selected provider is unavailable.']);
+  }
+  const runtimeConfig = {
+    ...effectiveConfig,
+    model: { ...effectiveConfig.model, providers: Object.fromEntries(
+      Object.entries(effectiveConfig.model.providers).filter(([id]) => Object.hasOwn(parsedModel.providers, id)),
+    ) },
+  };
+  const validation = validatePilotDeckConfig(runtimeConfig);
   if (!validation.valid) {
     return invalidConfiguration(record, validation.errors);
   }
@@ -137,6 +157,7 @@ export function evaluateModelConfigurationState(record, options = {}) {
     ...baseState(record),
     state: 'ready',
     modelRef,
+    ...(Object.keys(providerErrors).length ? { providerErrors } : {}),
   };
 }
 

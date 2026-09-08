@@ -44,6 +44,14 @@ describe("ProviderCard custom model add", () => {
     vi.clearAllMocks();
   });
 
+  it.each(['aaa', 'file:///tmp/model'])('rejects malformed or unsupported provider URL %s before saving', (url) => {
+    const onSave = vi.fn();
+    render(<ProviderCard providerId="test" initialEditing provider={{ protocol: 'openai', url, apiKey: 'key', models: { model: {} } }} onSave={onSave} onRemove={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'actions.saveChanges' }));
+    expect(screen.getByText('pilotDeckConfig.panels.models.providerUrlInvalid')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("does not expose provider retry settings", () => {
     render(
       <ProviderCard
