@@ -1695,19 +1695,19 @@
     background: #d2d4df;
   }
 
-  .settings-entry {
-    display: flex;
-    height: 36px;
+  .settings-actions {
     flex: 0 0 auto;
-    align-items: center;
-    gap: 9px;
-    padding: 0 17px;
-    border: 0;
+    padding: 13px 10px 9px;
     border-top: 1px solid rgba(100, 86, 189, 0.12);
-    background: #ffffff59;
-    color: #6e7080;
-    font-size: 14px;
-    cursor: pointer;
+  }
+
+  .settings-actions.compact {
+    padding: 0;
+    border-top: 0;
+  }
+
+  .settings-entry {
+    width: 100%;
   }
 
   .settings-entry .icon {
@@ -1841,7 +1841,7 @@
     background: transparent;
   }
 
-  .compact-settings > span {
+  .compact-settings > span:last-child {
     display: none;
   }
 
@@ -2292,10 +2292,8 @@
     background: #52525b;
   }
 
-  .dark .settings-entry {
+  .dark .settings-actions {
     border-top-color: #262626;
-    background: #0a0a0a;
-    color: #a3a3a3;
   }
 
   .dark .compact-divider {

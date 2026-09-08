@@ -1336,23 +1336,27 @@ export default function SidebarV2({
       </div>
       )}
 
-      <button
-        type="button"
-        onClick={onShowSettings}
-        aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-        title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-        data-tooltip={isCompact ? t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string : undefined}
-        className={cn(
-          'settings-entry',
-          isCompact && 'icon-button tooltip tooltip-right compact-settings',
-        )}
-      >
-        <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-          <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-        <span>{t('sidebar:actions.settings', { defaultValue: 'Settings' })}</span>
-      </button>
+      <div className={cn('settings-actions', isCompact && 'compact')}>
+        <button
+          type="button"
+          onClick={onShowSettings}
+          aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
+          title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
+          data-tooltip={isCompact ? t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string : undefined}
+          className={cn(
+            'primary-action settings-entry',
+            isCompact && 'tooltip tooltip-right compact-settings',
+          )}
+        >
+          <span className="primary-action-icon">
+            <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+              <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </span>
+          <span className="truncate">{t('sidebar:actions.settings', { defaultValue: 'Settings' })}</span>
+        </button>
+      </div>
 
       {contextMenu ? (
         <div
