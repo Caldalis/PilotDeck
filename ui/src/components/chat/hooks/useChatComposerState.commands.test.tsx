@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function setup(isModelSelectionReady: boolean) {
+function setup(isModelSelectionReady: boolean, isPermissionModeReady = true) {
   const onShowSettings = vi.fn();
   const sendMessage = vi.fn(() => true);
   const addMessage = vi.fn();
@@ -25,7 +25,7 @@ function setup(isModelSelectionReady: boolean) {
   const { result } = renderHook(() => useChatComposerState({
     selectedProject,
     selectedSession: null, currentSessionId: null,
-    model: 'removed/model', modelSelection: { mode: 'model', provider: 'removed', model: 'model' }, isModelSelectionReady,
+    model: 'removed/model', modelSelection: { mode: 'model', provider: 'removed', model: 'model' }, isModelSelectionReady, isPermissionModeReady,
     permissionMode: 'default', runMode: 'agent', cycleRunMode: vi.fn(), isLoading: false,
     canAbortSession: false, tokenBudget: null, sendMessage, onShowSettings,
     pendingViewSessionRef: { current: null }, scrollToBottom: vi.fn(), addMessage,
@@ -69,4 +69,14 @@ it.each(['ordinary message', '/unknown', '/config-extra', '/summarize'])('blocks
   expect(sendMessage).not.toHaveBeenCalled();
   expect(fetchMock.mock.calls.some(([url]) => url === '/api/commands/execute')).toBe(false);
   expect(result.current.input).toBe(input);
+});
+
+
+it('blocks submission while the global permission preference is loading or saving', async () => {
+  const { result, sendMessage } = setup(true, false);
+  await waitFor(() => expect(result.current.slashCommandsCount).toBe(3));
+  act(() => result.current.setInput('run my task'));
+  await act(() => result.current.handleSubmit({ preventDefault: vi.fn() } as never));
+  expect(sendMessage).not.toHaveBeenCalled();
+  expect(result.current.input).toBe('run my task');
 });

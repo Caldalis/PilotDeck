@@ -174,7 +174,7 @@ describe('SidebarV2 layout', () => {
     renderSidebar(general, { onStartNewSession });
 
     const projectsHeading = screen.getByRole('button', { name: 'Collapse projects' }).closest('.tree-heading') as HTMLElement;
-    const conversationsHeading = screen.getByRole('button', { name: 'Expand conversations' }).closest('.tree-heading') as HTMLElement;
+    const conversationsHeading = screen.getByRole('button', { name: 'Collapse conversations' }).closest('.tree-heading') as HTMLElement;
 
     expect(screen.getByText('PilotDeck')).toBeTruthy();
     expect(within(projectsHeading).getByRole('button', { name: /Create new project|创建新项目/ })).toBeTruthy();
@@ -188,26 +188,26 @@ describe('SidebarV2 layout', () => {
     expect(screen.getByText('PilotDeck')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Conversations'));
-    expect(within(conversationsHeading).getByRole('button', { name: 'Expand conversations' })).toBeTruthy();
-    fireEvent.click(within(conversationsHeading).getByRole('button', { name: 'Expand conversations' }));
-    expect(screen.getByRole('button', { name: 'Collapse conversations' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse conversations' }));
-    expect(within(conversationsHeading).getByRole('button', { name: 'Expand conversations' })).toBeTruthy();
+    expect(within(conversationsHeading).getByRole('button', { name: 'Collapse conversations' })).toBeTruthy();
+    fireEvent.click(within(conversationsHeading).getByRole('button', { name: 'Collapse conversations' }));
+    expect(screen.getByRole('button', { name: 'Expand conversations' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand conversations' }));
+    expect(within(conversationsHeading).getByRole('button', { name: 'Collapse conversations' })).toBeTruthy();
   });
 
-  it('starts conversations collapsed at the bottom of the sidebar', () => {
+  it('starts conversations expanded and keeps the collapse control usable', () => {
     const chattyGeneral: Project = {
       ...general,
       sessions: [{ id: 's1', title: 'hello world', lastActivity: '2026-08-01' }],
     };
     renderSidebar(chattyGeneral, { projects: [chattyGeneral, project] });
 
-    expect(screen.getByRole('button', { name: 'Expand conversations' })).toBeTruthy();
-    expect(screen.queryByText('hello world')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Collapse conversations' })).toBeTruthy();
+    expect(screen.getByText('hello world')).toBeTruthy();
     expect(screen.getByText('PilotDeck')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand conversations' }));
-    expect(screen.getByText('hello world')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse conversations' }));
+    expect(screen.queryByText('hello world')).toBeNull();
   });
 
   it('starts a home new conversation from the top-left button', () => {

@@ -336,7 +336,9 @@
       "defaultDescription": "Ask before risky operations",
       "bypassPermissions": "Full Access",
       "bypassPermissionsDescription": "Skip confirmations and allow full access",
-      "change": "Select permission mode"
+      "change": "Select permission mode",
+      "saveFailed": "Unable to load or save permissions. Please retry before sending.",
+      "retry": "Retry"
     },
     "runModes": {
       "agent": "Agent",

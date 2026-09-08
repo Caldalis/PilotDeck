@@ -595,7 +595,6 @@ describe('validatePilotDeckConfig gateway validation', () => {
         expect(validation.errors).toEqual(expect.arrayContaining([
             'model.providers.provider1.url is required',
             'model.providers.provider1.apiKey is required',
-            'model.providers.provider1.models must contain at least one model',
         ]));
     });
 

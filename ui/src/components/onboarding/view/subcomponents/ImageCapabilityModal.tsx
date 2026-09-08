@@ -13,7 +13,12 @@ export default function ImageCapabilityModal({ modelIds, onCancel, onConfirm }: 
   const [values, setValues] = useState<Record<string, boolean | undefined>>({});
 
   useEffect(() => {
-    setValues({});
+    // Parent renders and status polls may supply an equivalent new array.
+    // Keep the user's draft; discard only choices for models actually removed.
+    setValues(current => {
+      if (Object.keys(current).every(id => modelIds.includes(id))) return current;
+      return Object.fromEntries(Object.entries(current).filter(([id]) => modelIds.includes(id)));
+    });
   }, [modelIds]);
 
   const complete = modelIds.length > 0 && modelIds.every((id) => typeof values[id] === 'boolean');

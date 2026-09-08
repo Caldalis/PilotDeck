@@ -417,6 +417,31 @@ describe('config test-connection route', () => {
     expect(calls).toEqual(['https://api.openai.com/v1/chat/completions']);
   });
 
+  it('skips the image probe when skipImage is set after a manual update', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push(String(url));
+      return jsonResponse(openaiReply(init));
+    }));
+
+    const { request } = await createConfigApp();
+    const data = await request('/api/config/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({
+        providerType: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-test',
+        model: 'custom-model',
+        skipImage: true,
+      }),
+    });
+
+    expect(data.ok).toBe(true);
+    expect(data.supportsImage).toBeNull();
+    expect(data.imageCheckSource).toBeNull();
+    expect(calls).toEqual(['https://api.openai.com/v1/chat/completions']);
+  });
+
   it('does not reuse a masked saved key after the endpoint changes', async () => {
     vi.stubGlobal('fetch', vi.fn());
     const { requestStatus } = await createConfigApp({
@@ -568,6 +593,124 @@ describe('config model-list route', () => {
 });
 
 describe('config model-pool connection test routes', () => {
+  it.each(['retain-provider', 'remove-provider', 'replace-default'])('persists an empty model pool: %s', async (mode) => {
+    const provider = { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: null } };
+    const initial = { schemaVersion: 1, agent: { model: 'openai/model' }, model: { providers: { openai: provider } } };
+    if (mode === 'replace-default') initial.model.providers.good = structuredClone(provider);
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial));
+    const next = structuredClone(initial);
+    next.agent.model = mode === 'replace-default' ? 'good/model' : '';
+    if (mode === 'remove-provider') delete next.model.providers.openai;
+    else next.model.providers.openai.models = {};
+    const saved = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(saved.status).toBe(200);
+    expect(parseYaml(readFileSync(configPath, 'utf8'))).toMatchObject(next);
+    // Empty providers keep their connection settings across unrelated saves.
+    next.tools = { webSearch: { enabled: false } };
+    expect((await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) })).status).toBe(200);
+    expect(parseYaml(readFileSync(configPath, 'utf8')).model.providers).toEqual(next.model.providers);
+  });
+
+  it.each([false, true])('atomically recovers a broken default provider, preserving other references: %s', async (hasOtherReference) => {
+    const provider = { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: null } };
+    const initial = { schemaVersion: 1, agent: { model: 'openai/model' }, model: { providers: { openai: { ...provider, url: 'aaa' }, good: provider } },
+      ...(hasOtherReference ? { memory: { model: 'openai/model' } } : {}) };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial));
+    const before = readFileSync(configPath, 'utf8');
+    const next = structuredClone(initial);
+    next.agent.model = 'good/model';
+    delete next.model.providers.openai;
+    const result = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(result.status).toBe(hasOtherReference ? 409 : 200);
+    if (hasOtherReference) expect(readFileSync(configPath, 'utf8')).toBe(before);
+    else {
+      expect(result.body.validation.valid).toBe(true);
+      const saved = parseYaml(readFileSync(configPath, 'utf8'));
+      expect(saved).toMatchObject(next);
+      expect(saved.model.providers.openai).toBeUndefined();
+    }
+  });
+
+  it.each(['aaa', 'file:///tmp/model'])('rejects provider URL %s before writing and preserves the working config', async (url) => {
+    const initial = { schemaVersion: 1, agent: { model: 'good/model' }, model: { providers: { good: { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: {} } } } } };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial));
+    const before = readFileSync(configPath, 'utf8');
+    const next = structuredClone(initial);
+    next.model.providers.bad = { protocol: 'openai', url, apiKey: 'key', models: { bad: {} } };
+    const result = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(result.status).toBe(400);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
+  it.each(['unrelated edit', 'credential edit'])('runs a detached task against the latest config after %s', async (change) => {
+    let finish;
+    const waiting = new Promise(resolve => { finish = resolve; });
+    const probe = vi.fn().mockImplementationOnce(() => waiting).mockResolvedValue({ ok: true });
+    const provider = { protocol: 'openai', url: 'https://custom.example/v1', apiKey: 'original-key', models: { 'model-a': {} } };
+    const initial = { schemaVersion: 1, agent: { model: 'HXAPI/model-a' }, model: { providers: { HXAPI: provider } } };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial), { probe });
+    const started = await request('/api/config/connection-test-tasks', { method: 'POST', body: JSON.stringify({ providerId: 'HXAPI' }) });
+    expect(started.status).toBe(202);
+    expect(started.body.task.status).toBe('testing');
+    expect(JSON.stringify(started.body)).not.toContain('original-key');
+    // The start HTTP response has closed, but a separate read still sees the task.
+    const pending = await request('/api/config/connection-test-tasks');
+    expect(pending.body.tasks[0].status).toBe('testing');
+    const duplicate = await request('/api/config/connection-test-tasks', { method: 'POST', body: JSON.stringify({ providerId: 'HXAPI' }) });
+    expect(duplicate.status).toBe(409);
+    expect(probe).toHaveBeenCalledTimes(1);
+    const next = structuredClone(initial);
+    next.memory = { enabled: false };
+    if (change === 'credential edit') next.model.providers.HXAPI.apiKey = 'new-key';
+    const edit = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(edit.status).toBe(200);
+    finish({ ok: true });
+    await vi.waitFor(async () => {
+      const state = await request('/api/config/connection-test-tasks');
+      expect(state.body.tasks[0].status).toBe(change === 'credential edit' ? 'saveError' : 'success');
+    });
+    const disk = parseYaml(readFileSync(configPath, 'utf8'));
+    expect(disk.memory.enabled).toBe(false);
+    if (change === 'credential edit') {
+      expect(disk.model.providers.HXAPI.apiKey).toBe('new-key');
+      expect(disk.model.providers.HXAPI.models['model-a'].connectionTest).toBeUndefined();
+    } else {
+      expect(disk.model.providers.HXAPI.apiKey).toBe('original-key');
+      expect(disk.model.providers.HXAPI.models['model-a'].connectionTest.status).toBe('passed');
+    }
+  });
+
+  it.each(['HXAPI', 'Gemini', 'OpenAI'])('preserves %s through masked-key testing, real disk save and reload', async (id) => {
+    const probe = vi.fn().mockResolvedValue({ ok: true });
+    const lower = id.toLowerCase();
+    const initial = {
+      schemaVersion: 1, agent: { model: `${id}/model-a` },
+      model: { providers: {
+        [id]: { protocol: 'openai', url: 'https://custom.example/v1', apiKey: 'private-test-key', models: { 'model-a': {} } },
+        [lower]: { protocol: 'openai', url: 'https://other.example/v1', apiKey: 'other-key', models: { 'model-a': {} } },
+      } },
+    };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial), { probe });
+    const tested = await request('/api/config/test-connections', { method: 'POST', body: JSON.stringify({
+      providerId: id, protocol: 'openai', endpoint: 'https://custom.example/v1', apiKey: '********', models: ['model-a'], retryPolicy: {},
+    }) });
+    expect(tested.status).toBe(200);
+    expect(tested.body.status).toBe('passed');
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({ protocol: 'openai', apiKey: 'private-test-key' }));
+    const loaded = await request('/api/config');
+    const saved = await request('/api/config', { method: 'PUT', body: JSON.stringify({
+      raw: loaded.body.raw, baseRevision: loaded.body.revision, modelTestBindings: [{ testId: tested.body.testId }],
+    }) });
+    expect(saved.status).toBe(200);
+    const disk = parseYaml(readFileSync(configPath, 'utf8'));
+    expect(disk.model.providers[id].models['model-a'].connectionTest.status).toBe('passed');
+    expect(disk.model.providers[id].apiKey).toBe('private-test-key');
+    expect(disk.model.providers[lower]).toEqual(initial.model.providers[lower]);
+    expect(disk.agent.model).toBe(`${id}/model-a`);
+    const reloaded = await request('/api/config');
+    expect(reloaded.body.config.model.providers[id].models['model-a'].connectionTest.status).toBe('passed');
+  });
+
   it('uses a custom endpoint for catalog providers', async () => {
     const probe = vi.fn().mockResolvedValue({ ok: true });
     const { requestStatus } = await createConfigApp({ probe });
@@ -936,7 +1079,7 @@ describe('config model-pool connection test routes', () => {
     expect(writePilotDeckConfig.mock.calls[0][0].model.providers.openai.models['model-b'].connectionTest).toMatchObject({ status: 'passed' });
   });
 
-  it('rejects a newly referenced model without a passing test binding', async () => {
+  it('accepts a newly referenced model without a connection test', async () => {
     const initial = {
       agent: { model: 'openai/model-a' },
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {} } } } },
@@ -951,11 +1094,10 @@ describe('config model-pool connection test routes', () => {
       method: 'PUT', headers: { 'x-user': 'settings-user' },
       body: JSON.stringify({ config: next }),
     });
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('MODEL_TEST_REQUIRED');
+    expect(response.status).toBe(200);
   });
 
-  it('requires a test when an existing unreferenced model becomes the agent model', async () => {
+  it('allows an existing untested model to become the agent model', async () => {
     const initial = stringifyYaml({
       agent: { model: 'openai/model-a' },
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {} } } } },
@@ -973,8 +1115,7 @@ describe('config model-pool connection test routes', () => {
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {}, 'model-b': {} } } } },
     });
     const second = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: referenced }) });
-    expect(second.status).toBe(409);
-    expect(second.body.code).toBe('MODEL_TEST_REQUIRED');
+    expect(second.status).toBe(200);
   });
 
   it('returns a user-facing error string for invalid test bindings', async () => {
@@ -1974,9 +2115,11 @@ async function createDiskConfigApp(initialRaw, overrides = {}) {
     getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
   }));
 
+  if (overrides.probe) vi.doMock('../services/modelConnectionProbe.js', () => ({ probeModelConnection: overrides.probe }));
   const { default: configRoutes } = await import('./config.js');
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => { req.user = { id: 'disk-test-user' }; next(); });
   app.use('/api/config', configRoutes);
 
   return {

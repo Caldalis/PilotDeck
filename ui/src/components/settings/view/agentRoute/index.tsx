@@ -10,7 +10,7 @@ type AgentRouteSectionsProps = {
   title: string;
 };
 
-export default function AgentRouteSections({ title }: AgentRouteSectionsProps) {
+export default function AgentRouteSections({ title: _title }: AgentRouteSectionsProps) {
   const { t } = useTranslation("settings");
   const { raw, commitRaw, loading, error } = usePilotDeckConfig();
   const parsedConfig = useMemo(() => safeParseYaml(raw), [raw]);
@@ -25,8 +25,7 @@ export default function AgentRouteSections({ title }: AgentRouteSectionsProps) {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+      <div className="route-page-content">
         <div className="py-6 text-xs text-muted-foreground">
           {t("pilotDeckConfig.loading")}
         </div>
@@ -36,8 +35,7 @@ export default function AgentRouteSections({ title }: AgentRouteSectionsProps) {
 
   if (!parsedConfig) {
     return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+      <div className="route-page-content">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {t("settingsPage.invalidYaml.agentRoute")}
         </div>
@@ -46,10 +44,9 @@ export default function AgentRouteSections({ title }: AgentRouteSectionsProps) {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-semibold text-foreground">{title}</h2>
+    <>
       <ConfigSaveError error={error} />
       <RouterSection config={parsedConfig} onChange={onFormChange} />
-    </div>
+    </>
   );
 }

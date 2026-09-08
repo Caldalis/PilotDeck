@@ -23,23 +23,28 @@ import {
   type SessionProvider,
 } from '../../types/app';
 import { api } from '../../utils/api';
+import { useRejectExternalFileDropOutsideTargets } from '../../utils/externalFileDrop';
 import { resolveMarkdownFileHref } from '../chat/utils/resolveMarkdownFileHref';
 import type { SessionNavigationOptions } from '../main-content/types/types';
+import { getSettingsPathFromTab } from '../settings/navigation';
+import { ConnectionBanner } from '../ui/ConnectionBanner';
 import SidebarV2 from './SidebarV2';
 import MainAreaV2 from './MainAreaV2';
 import {
   chooseDefaultProject,
   resolveHomeNewConversationProject,
 } from './appShellSelection';
-import { getDedicatedTabPath, SCHEDULED_TASKS_PATH, SKILLS_PATH } from './appRoutes';
-import { ConnectionBanner } from '../ui/ConnectionBanner';
-import { useRejectExternalFileDropOutsideTargets } from '../../utils/externalFileDrop';
+import {
+  getDedicatedTabPath,
+  SCHEDULED_TASKS_PATH,
+  SETTINGS_PATH,
+  SKILLS_PATH,
+} from './appRoutes';
 
 type TypedSettingsProps = {
-  isOpen: boolean;
   onClose: () => void;
   projects: SettingsProject[];
-  initialTab: string;
+  section?: string;
 };
 
 type DeleteSessionTarget = {
@@ -105,12 +110,16 @@ export default function AppShellV2() {
   const matchLegacySession = useMatch('/session/:sessionId');
   const matchScheduledTasks = useMatch(SCHEDULED_TASKS_PATH);
   const matchSkills = useMatch(SKILLS_PATH);
+  const matchSettingsIndex = useMatch({ path: SETTINGS_PATH, end: true });
+  const matchSettingsSection = useMatch(`${SETTINGS_PATH}/:section`);
+  const isSettingsRoute = Boolean(matchSettingsIndex || matchSettingsSection);
+  const settingsSection = matchSettingsSection?.params.section;
   const dedicatedTab = matchSkills
     ? 'skills' as const
     : matchScheduledTasks
       ? 'cron' as const
       : null;
-  const isDedicatedRoute = dedicatedTab !== null;
+  const isDedicatedRoute = dedicatedTab !== null || isSettingsRoute;
   const projectNameParam =
     matchProjectChat?.params.projectName ?? matchProject?.params.projectName ?? undefined;
   const sessionId =
@@ -144,8 +153,6 @@ export default function AppShellV2() {
     setSelectedSession,
     setSidebarOpen,
     setIsInputFocused,
-    setShowSettings,
-    openSettings,
     refreshProjectsSilently,
     sidebarSharedProps,
     handleProjectSelect,
@@ -257,14 +264,21 @@ export default function AppShellV2() {
     };
   }, [refreshProjectsSilently]);
 
+  const openSettingsPage = useCallback(
+    (tab = 'appearance') => {
+      navigate(getSettingsPathFromTab(tab));
+    },
+    [navigate],
+  );
+
   useEffect(() => {
-    window.openSettings = openSettings;
+    window.openSettings = openSettingsPage;
     return () => {
-      if (window.openSettings === openSettings) {
+      if (window.openSettings === openSettingsPage) {
         delete window.openSettings;
       }
     };
-  }, [openSettings]);
+  }, [openSettingsPage]);
 
   // Resolve a project by name (exact match first, then case-insensitive on
   // both the directory name and the user-facing displayName, then a relaxed
@@ -384,8 +398,17 @@ export default function AppShellV2() {
     }
   }, [isConnected, selectedSession?.id, sendMessage]);
 
-  const onShowSettings = useCallback(() => setShowSettings(true), [setShowSettings]);
-  const onCloseSettings = useCallback(() => setShowSettings(false), [setShowSettings]);
+  const onShowSettings = useCallback(() => {
+    navigate(SETTINGS_PATH);
+  }, [navigate]);
+  const onCloseSettings = useCallback(() => {
+    const target = selectedSession
+      ? `/session/${selectedSession.id}`
+      : selectedProject
+        ? `/p/${encodeURIComponent(selectedProject.name)}`
+        : '/';
+    navigate(target);
+  }, [navigate, selectedProject, selectedSession]);
   const onMenuClick = useCallback(() => setSidebarOpen(true), [setSidebarOpen]);
   const onCollapseSidebar = useCallback(() => {
     if (isMobile) {
@@ -689,10 +712,18 @@ export default function AppShellV2() {
   return (
     <div className="app-root ui-v2 fixed inset-0 flex flex-col font-sans text-neutral-900 dark:text-neutral-100">
       <ConnectionBanner />
+      {isSettingsRoute ? (
+        <SettingsComponent
+          onClose={onCloseSettings}
+          projects={sidebarSharedProps.projects.map(normalizeProjectForSettings)}
+          section={settingsSection}
+        />
+      ) : null}
       <div
         className={`app-shell min-h-0 flex-1 ${
           !isMobile && desktopSidebarOpen ? '' : 'sidebar-hidden'
-        }`}
+        }${isSettingsRoute ? ' hidden' : ''}`}
+        aria-hidden={isSettingsRoute}
       >
       {!isMobile ? (
         desktopSidebarOpen ? sidebar : null
@@ -766,18 +797,7 @@ export default function AppShellV2() {
           onMisroutedFileUrlHandled={handleMisroutedFileUrlHandled}
         />
       </main>
-
-      {sidebarSharedProps.showSettings
-        ? ReactDOM.createPortal(
-            <SettingsComponent
-              isOpen={sidebarSharedProps.showSettings}
-              onClose={onCloseSettings}
-              projects={sidebarSharedProps.projects.map(normalizeProjectForSettings)}
-              initialTab={sidebarSharedProps.settingsInitialTab || 'appearance'}
-            />,
-            document.body,
-          )
-        : null}
+      </div>
 
       {showNewProject
         ? ReactDOM.createPortal(
@@ -814,7 +834,6 @@ export default function AppShellV2() {
 	            document.body,
 	          )
 	        : null}
-	    </div>
 	    </div>
 	  );
 	}

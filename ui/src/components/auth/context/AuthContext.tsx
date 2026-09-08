@@ -116,7 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     if (
-      modelConfiguration.state !== 'ready'
+      (modelConfiguration.state !== 'ready' && modelConfiguration.state !== 'empty')
       || gatewayRuntime.state === 'unmanaged'
       || gatewayRuntime.state === 'error'
     ) {
@@ -287,7 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       token,
       isLoading,
       needsSetup,
-      hasCompletedOnboarding: modelConfiguration.state === 'ready',
+      hasCompletedOnboarding: modelConfiguration.state === 'ready' || modelConfiguration.state === 'empty',
       modelConfiguration,
       gatewayRuntime,
       error,

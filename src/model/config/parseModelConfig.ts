@@ -34,6 +34,7 @@ import {
 
 export type ParseModelConfigOptions = {
   env?: CredentialEnv;
+  onInvalidProvider?: (providerId: string, error: ModelConfigError) => void;
 };
 
 export function parseModelConfig(
@@ -50,7 +51,12 @@ export function parseModelConfig(
 
   const providers: Record<string, ProviderConfig> = {};
   for (const [providerId, rawProvider] of Object.entries(rawConfig.providers)) {
-    providers[providerId] = parseProvider(providerId, rawProvider, options.env);
+    try {
+      providers[providerId] = parseProvider(providerId, rawProvider, options.env);
+    } catch (error) {
+      if (!options.onInvalidProvider || !(error instanceof ModelConfigError)) throw error;
+      options.onInvalidProvider(providerId, error);
+    }
   }
 
   return {
@@ -417,7 +423,8 @@ function parseImageDetail(value: unknown): MultimodalConstraints["imageDetail"] 
 
 function assertValidUrl(value: string, providerId: string): void {
   try {
-    new URL(value);
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Unsupported URL scheme");
   } catch {
     throw new ModelConfigError("invalid_url", `Provider ${providerId} url is invalid.`, {
       providerId,

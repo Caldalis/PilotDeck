@@ -3,7 +3,8 @@
  *
  * GET /api/sessions/:sessionId/messages?projectName=&projectPath=&limit=&offset=
  *
- * Reads transcripts through the gateway's `readSessionMessages` RPC.
+ * Reads transcripts through Gateway, or its shared disk readers when the
+ * model pool is intentionally empty and Gateway is stopped.
  * Previously this route imported `readWebSessionMessages` directly from
  * `dist/src/web/server/` — that coupled `ui/server/` to compiled
  * artifacts and meant `src/` edits were silently invisible until a

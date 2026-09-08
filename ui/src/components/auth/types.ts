@@ -51,6 +51,7 @@ type ModelConfigurationBase = {
 export type ServerModelConfigurationState = ModelConfigurationBase & (
   | { state: 'needs_configuration'; reason: ModelConfigurationReason }
   | { state: 'ready'; modelRef: string }
+  | { state: 'empty' }
   | { state: 'invalid'; errors: string[] }
 );
 

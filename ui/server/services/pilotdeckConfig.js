@@ -260,11 +260,18 @@ function validateProvider(id, provider, errors) {
   if (!normalizeString(provider.url) && !Object.hasOwn(CATALOG_PROVIDER_DEFAULT_URLS, id)) {
     errors.push(`model.providers.${id}.url is required`);
   }
+  const providerUrl = resolveConfiguredProviderUrl(id, provider);
+  if (providerUrl) {
+    try {
+      const parsedUrl = new URL(providerUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Unsupported URL scheme');
+    } catch { errors.push(`model.providers.${id}.url must be a valid HTTP or HTTPS URL`); }
+  }
   if (!allowsMissingApiKey(id) && !resolveConfiguredProviderApiKey(id, provider)) {
     errors.push(`model.providers.${id}.apiKey is required`);
   }
-  if (!isRecord(provider.models) || Object.keys(provider.models).length === 0) {
-    errors.push(`model.providers.${id}.models must contain at least one model`);
+  if (!isRecord(provider.models)) {
+    errors.push(`model.providers.${id}.models must be an object`);
   } else {
     for (const [modelId, model] of Object.entries(provider.models)) {
       if (!normalizeString(modelId)) {
@@ -383,6 +390,9 @@ function validateRouterModelRefs(config, errors) {
         continue;
       }
       validateRequiredModelRef(config, tier.model, `router.tokenSaver.tiers.${key}.model`, errors);
+      if (tier.label !== undefined && typeof tier.label !== 'string') {
+        errors.push(`router.tokenSaver.tiers.${key}.label must be a string`);
+      }
       if (tier.description !== undefined && typeof tier.description !== 'string') {
         errors.push(`router.tokenSaver.tiers.${key}.description must be a string`);
       }
@@ -865,7 +875,8 @@ function purgeLegacyProviderDrafts(config, previousConfig) {
       || (isRecord(provider.models) && Object.keys(provider.models).length === 0);
     if (
       modelsAreEmpty
-      && !normalizeString(provider.apiKey)
+      && !allowsMissingApiKey(providerId)
+      && !resolveConfiguredProviderApiKey(providerId, provider)
       && isRecord(previousProvider)
       && JSON.stringify(provider) === JSON.stringify(previousProvider)
       && findModelReferences(config, { providerId }).length === 0

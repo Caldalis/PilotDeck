@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useConnectionTestTasks, isTestTaskBusy } from "../hooks/useConnectionTestTasks";
 import { useTranslation } from "react-i18next";
-import {
-  Check,
-  ChevronDown,
-  Image as ImageIcon,
-  Info,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
-import { Button } from "../../../../../shared/view/ui";
 import { isImeEnterEvent } from "../../../../../utils/ime";
+import { authenticatedFetch } from "../../../../../utils/api";
 import { cn } from "../../../../../lib/utils";
 import {
   findCatalogProviderById,
@@ -19,48 +11,113 @@ import {
   type CatalogProviderProtocol,
 } from "../../../../../shared/catalogProviders";
 import {
+  DEFAULT_MODEL_TOKEN_LIMITS,
+} from "../../../../../shared/catalogProviders";
+import {
   fetchProviderModels,
   type ApiModelListItem,
 } from "../../../../../shared/modelListApi";
+import { MASK } from "../../../shared/utils/secret";
 import type { V2Provider } from "../types";
 import { isMaskedSecret, providerDisplayName } from "../utils/providerRefs";
 import {
-  FormRow,
-  NumberInput,
-  SecretTextInput,
-  Select,
-  TextInput,
-} from "../../../shared/components/Inputs";
+  clearProviderConnectionTests,
+  isProviderConfigured,
+  isProviderPending,
+  isProviderUrlValid,
+} from "../utils/providerStatus";
+import ImageCapabilityModal from "../../../../onboarding/view/subcomponents/ImageCapabilityModal";
+import DeleteConfirmationModal, {
+  type ModelUsageReference,
+} from "./DeleteConfirmationModal";
+import ProviderAvatar from "./ProviderAvatar";
+import {
+  CheckCircleIcon,
+  InfoIcon,
+  KeyIcon,
+  LinkIcon,
+  PendingIcon,
+  PencilIcon,
+  PlusIcon,
+  PlugIcon,
+  RefreshIcon,
+  SaveIcon,
+  SearchIcon,
+  StackIcon,
+  TrashIcon,
+} from "./icons";
 
 type ProviderCardProps = {
   providerId: string;
   provider: V2Provider;
+  isNew?: boolean;
   onSave: (
     nextId: string,
     nextProvider: V2Provider,
   ) => Promise<{ ok: boolean; error?: string }>;
   onRemove: () => void;
+  onCancelNew?: () => void;
+  onPendingChange?: (pending: boolean) => void;
   catalogEntry?: CatalogProvider;
   initialEditing?: boolean;
-  onCancelNew?: () => void;
+  defaultModelOptions?: string[];
+  onReplaceDefaultModel?: (modelRef: string, modelId?: string) => Promise<{ ok: boolean; error?: string }>;
 };
+
+type DeleteDialogState = {
+  kind: "model" | "provider";
+  modelId?: string;
+  name: string;
+  usages: Array<{ modelName?: string; reference: ModelUsageReference }>;
+  loading: boolean;
+  error: string;
+};
+
+type ModelCapabilitiesRecord = {
+  maxOutputTokens?: number;
+  maxContextTokens?: number;
+  [key: string]: unknown;
+};
+
+function asModelRecord(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  return value && typeof value === "object" ? { ...value } : {};
+}
+
+function readCapabilities(model: Record<string, unknown> | null | undefined): ModelCapabilitiesRecord {
+  const record = asModelRecord(model);
+  const capabilities = record.capabilities;
+  return capabilities && typeof capabilities === "object" && !Array.isArray(capabilities)
+    ? { ...(capabilities as ModelCapabilitiesRecord) }
+    : {};
+}
+
+function catalogModelFor(
+  catalogEntry: CatalogProvider | undefined,
+  modelId: string,
+): CatalogModel | undefined {
+  return catalogEntry?.models.find((model) => model.id === modelId || model.aliases?.includes(modelId));
+}
 
 export default function ProviderCard({
   providerId,
   provider,
+  isNew = false,
   onSave,
   onRemove,
+  onCancelNew,
+  onPendingChange,
   catalogEntry,
   initialEditing = false,
-  onCancelNew,
+  defaultModelOptions = [],
+  onReplaceDefaultModel,
 }: ProviderCardProps) {
   const { t } = useTranslation("settings");
   const [draftProvider, setDraftProvider] = useState<V2Provider>(provider);
-  const [editing, setEditing] = useState(initialEditing);
+  const [editing, setEditing] = useState(isNew || initialEditing);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-  const [newModelId, setNewModelId] = useState("");
-  const [showProviderAdvanced, setShowProviderAdvanced] = useState(false);
+  const [draftCustomModelId, setDraftCustomModelId] = useState<string | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
   const [providerIdDraft, setProviderIdDraft] = useState(providerId);
   const [providerIdError, setProviderIdError] = useState("");
   const trimmedProviderId = providerIdDraft.trim();
@@ -78,15 +135,28 @@ export default function ProviderCard({
         && !effectiveCatalogEntry.apiKeyEnvVar
       : true;
   const [apiModels, setApiModels] = useState<ApiModelListItem[] | null>(null);
-  const [apiModelsStatus, setApiModelsStatus] = useState<
-    "idle" | "loading" | "error"
-  >("idle");
+  const [apiModelsStatus, setApiModelsStatus] = useState<"idle" | "loading" | "error">("idle");
   const [apiModelsError, setApiModelsError] = useState("");
+  const tests = useConnectionTestTasks();
+  const task = tests.tasks.find(item => item.providerId === providerId);
+  const activeTask = tests.tasks.find(isTestTaskBusy);
+  const ownBusy = isTestTaskBusy(task);
+  const testStatus = task?.status ?? "idle";
+  const testMessage = task?.message;
+  const manualModelIds = testStatus === "manual"
+    ? (task?.result?.models ?? []).filter(model => model.textInput === "supported" && model.imageInput === "unknown").map(model => model.modelId)
+    : [];
+  const testDisabled = tests.checking || tests.pending || !!activeTask || saving;
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
   const displayName = providerDisplayName(
     providerIdDraft || providerId,
     effectiveCatalogEntry,
     t("pilotDeckConfig.panels.models.customProvider"),
   );
+  const configured = isProviderConfigured(draftProvider, effectiveCatalogEntry);
+  const fieldsDisabled = !editing || saving;
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
 
   useEffect(() => {
     if (editing) return;
@@ -95,23 +165,37 @@ export default function ProviderCard({
     setProviderIdError("");
   }, [editing, provider, providerId]);
 
+  useEffect(() => {
+    onPendingChangeRef.current?.(isProviderPending(draftProvider, effectiveCatalogEntry));
+  }, [draftProvider, effectiveCatalogEntry]);
+
   const update = (patchValue: Partial<V2Provider>) => {
     setProviderIdError("");
-    setDraftProvider((prev) => ({ ...prev, ...patchValue }));
+    setDraftProvider((prev) => {
+      const next = { ...prev, ...patchValue };
+      const credentialsChanged = ["apiKey", "url", "protocol"].some(
+        (key) => key in patchValue && patchValue[key as keyof V2Provider] !== prev[key as keyof V2Provider],
+      );
+      return credentialsChanged ? clearProviderConnectionTests(next) : next;
+    });
   };
 
   const cancelEditing = () => {
+    if (isNew) {
+      onCancelNew?.();
+      return;
+    }
     setDraftProvider(provider);
     setProviderIdDraft(providerId);
     setProviderIdError("");
-    setNewModelId("");
+    setDraftCustomModelId(null);
+    setModelSearch("");
     setEditing(false);
-    onCancelNew?.();
   };
 
   const saveEditing = async () => {
     if (savingRef.current) return;
-    const nextId = providerIdDraft.trim();
+    const nextId = trimmedProviderId;
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(nextId)) {
       setProviderIdError(t("pilotDeckConfig.panels.models.providerIdInvalid"));
       return;
@@ -120,12 +204,12 @@ export default function ProviderCard({
       setProviderIdError(t("pilotDeckConfig.panels.models.providerUrlRequired"));
       return;
     }
-    if (providerRequiresApiKeyInForm && !draftProvider.apiKey?.trim()) {
-      setProviderIdError(t("pilotDeckConfig.panels.models.providerApiKeyRequired"));
+    if (!isProviderUrlValid(effectiveUrl)) {
+      setProviderIdError(t("pilotDeckConfig.panels.models.providerUrlInvalid"));
       return;
     }
-    if (enabledModels.length === 0) {
-      setProviderIdError(t("pilotDeckConfig.panels.models.providerModelRequired"));
+    if (providerRequiresApiKeyInForm && !draftProvider.apiKey?.trim()) {
+      setProviderIdError(t("pilotDeckConfig.panels.models.providerApiKeyRequired"));
       return;
     }
     savingRef.current = true;
@@ -144,7 +228,7 @@ export default function ProviderCard({
         return;
       }
       setEditing(false);
-      setNewModelId("");
+      setDraftCustomModelId(null);
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -156,7 +240,20 @@ export default function ProviderCard({
     if (!id) return;
     if (draftProvider.models && id in draftProvider.models) return;
     update({ models: { ...(draftProvider.models ?? {}), [id]: {} } });
-    setNewModelId("");
+    setDraftCustomModelId(null);
+  };
+
+  const openCustomModelInput = () => {
+    if (draftCustomModelId != null) {
+      addModel(draftCustomModelId);
+      return;
+    }
+    setDraftCustomModelId("");
+  };
+
+  const commitCustomModel = () => {
+    if (draftCustomModelId == null) return;
+    addModel(draftCustomModelId);
   };
 
   const removeModel = (mid: string) => {
@@ -165,416 +262,500 @@ export default function ProviderCard({
     update({ models: next });
   };
 
-  const toggleCatalogModel = (mid: string) => {
-    if (draftProvider.models && mid in draftProvider.models) {
-      removeModel(mid);
-    } else {
-      addModel(mid);
+  const patchModelCapabilities = (
+    modelId: string,
+    patchValue: { maxOutputTokens?: number; maxContextTokens?: number },
+  ) => {
+    const current = asModelRecord(draftProvider.models?.[modelId]);
+    const capabilities = { ...readCapabilities(current), ...patchValue };
+    update({
+      models: {
+        ...(draftProvider.models ?? {}),
+        [modelId]: { ...current, capabilities },
+      },
+    });
+  };
+
+  const tokenValue = (modelId: string, key: "maxOutputTokens" | "maxContextTokens") => {
+    const stored = readCapabilities(draftProvider.models?.[modelId])[key];
+    if (typeof stored === "number" && stored > 0) return stored;
+    const catalog = catalogModelFor(effectiveCatalogEntry, modelId);
+    if (typeof catalog?.[key] === "number") return catalog[key];
+    return DEFAULT_MODEL_TOKEN_LIMITS[protocol][key];
+  };
+
+  const modelLabel = (modelId: string) =>
+    catalogModelFor(effectiveCatalogEntry, modelId)?.displayName ?? modelId;
+
+  const openDeleteDialog = async (kind: "model" | "provider", modelId?: string) => {
+    const name = kind === "model" && modelId ? modelLabel(modelId) : displayName;
+    const target: DeleteDialogState = {
+      kind,
+      modelId,
+      name,
+      usages: [],
+      loading: false,
+      error: "",
+    };
+    const needsReferenceCheck = kind === "provider"
+      ? !isNew
+      : Boolean(modelId && provider.models && modelId in provider.models);
+    if (!needsReferenceCheck) {
+      setDeleteDialog(target);
+      return;
+    }
+
+    setDeleteDialog({ ...target, loading: true });
+    try {
+      const params = new URLSearchParams({ providerId });
+      if (modelId) params.set("modelId", modelId);
+      const response = await authenticatedFetch(`/api/config/model-references?${params.toString()}`, {
+        suppressServerErrorToast: true,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setDeleteDialog({
+          ...target,
+          error: data.message || data.error || t("pilotDeckConfig.panels.models.deleteDialog.checkFailed"),
+        });
+        return;
+      }
+      const references: ModelUsageReference[] = Array.isArray(data.references)
+        ? data.references.filter((reference: unknown): reference is ModelUsageReference => (
+          Boolean(reference)
+          && typeof reference === "object"
+          && typeof (reference as ModelUsageReference).path === "string"
+          && typeof (reference as ModelUsageReference).value === "string"
+        ))
+        : [];
+      setDeleteDialog({
+        ...target,
+        usages: references.map((reference) => {
+          if (kind !== "provider") return { reference };
+          const prefix = `${providerId}/`;
+          const referencedModelId = reference.value.startsWith(prefix)
+            ? reference.value.slice(prefix.length)
+            : reference.value;
+          return { modelName: modelLabel(referencedModelId), reference };
+        }),
+      });
+    } catch (error) {
+      setDeleteDialog({
+        ...target,
+        error: error instanceof Error
+          ? error.message
+          : t("pilotDeckConfig.panels.models.deleteDialog.checkFailed"),
+      });
     }
   };
 
-  const visibleModels: Array<ApiModelListItem | CatalogModel> =
-    apiModels ?? effectiveCatalogEntry?.models ?? [];
-  const canFetchModels = Boolean(
-    effectiveUrl && (!providerRequiresApiKeyInForm || draftProvider.apiKey),
+  const confirmDelete = () => {
+    if (!deleteDialog) return;
+    if (deleteDialog.kind === "model" && deleteDialog.modelId) {
+      removeModel(deleteDialog.modelId);
+    } else {
+      onRemove();
+    }
+    setDeleteDialog(null);
+  };
+
+  const providerRequiresApiKey = providerRequiresApiKeyInForm;
+  const usesOfficialEndpoint = effectiveCatalogEntry
+    && effectiveUrl.replace(/\/+$/, "") === effectiveCatalogEntry.defaultUrl.replace(/\/+$/, "");
+  const modelListUrl = usesOfficialEndpoint
+    ? effectiveCatalogEntry.modelListUrl ?? effectiveUrl
+    : effectiveUrl;
+  const hasCompleteModelListUrl = (() => {
+    try {
+      const url = new URL(modelListUrl);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  })();
+  const modelListNeedsApiKey = Boolean(
+    providerRequiresApiKeyInForm,
   );
+  const canFetchModels = Boolean(
+    hasCompleteModelListUrl && (!modelListNeedsApiKey || draftProvider.apiKey),
+  );
+  const fallbackModels: ApiModelListItem[] =
+    effectiveCatalogEntry?.models.map(({ id, displayName }) => ({ id, displayName })) ?? [];
+  const candidateModels = (apiModels ?? []).filter((model) => {
+    if (draftProvider.models && model.id in draftProvider.models) return false;
+    return model.id.toLocaleLowerCase().includes(modelSearch.trim().toLocaleLowerCase());
+  });
 
   const refreshModels = async () => {
-    if (!canFetchModels) return;
+    if (!canFetchModels) {
+      setApiModels(fallbackModels);
+      return;
+    }
     setApiModelsStatus("loading");
     setApiModelsError("");
     try {
       const models = await fetchProviderModels({
         protocol,
-        baseUrl: effectiveUrl,
+        baseUrl: modelListUrl,
         apiKey: draftProvider.apiKey ?? "",
-        // A masked key still belongs to the saved provider until the rename is
-        // committed. Explicit and blank keys follow the provider ID being edited.
         providerId: isMaskedKey ? providerId : trimmedProviderId,
       });
       setApiModels(models);
       setApiModelsStatus("idle");
     } catch (error) {
+      setApiModels(fallbackModels);
       setApiModelsStatus("error");
       setApiModelsError(error instanceof Error ? error.message : String(error));
     }
   };
 
+  const startEditing = () => {
+    setEditing(true);
+    void refreshModels();
+  };
+
+  const apiKeyInputValue = isMaskedKey ? MASK : (draftProvider.apiKey ?? "");
+
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-background/50 p-4 transition-colors">
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">
-              {displayName}
+    <section className="provider-detail" aria-label={t("pilotDeckConfig.panels.models.providerAria", { name: displayName })}>
+      <header className="detail-header">
+        <div className="detail-identity">
+          <span className="detail-provider-icon">
+            <ProviderAvatar providerId={providerIdDraft || providerId} catalogEntry={effectiveCatalogEntry} />
+          </span>
+          <div>
+            <div className="detail-title-line">
+              <h2>{displayName}</h2>
+              <span className={`status-badge${configured ? "" : " pending"}`}>
+                {configured ? <CheckCircleIcon size={14} /> : <PendingIcon size={14} />}
+                {configured
+                  ? t("pilotDeckConfig.panels.models.configured")
+                  : t("pilotDeckConfig.panels.models.pending")}
+              </span>
             </div>
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {t("pilotDeckConfig.panels.models.providerId")}
-            </span>
-            <input
-              value={providerIdDraft}
-              onChange={(e) => {
-                setProviderIdDraft(e.target.value);
-                setProviderIdError("");
-              }}
-              readOnly={!editing}
-              className={cn(
-                "rounded-md border border-border px-2 py-0.5 font-mono text-[11px] outline-none",
-                editing
-                  ? "border-primary/40 bg-background text-foreground ring-1 ring-ring/40"
-                  : "bg-muted/40 text-muted-foreground",
-              )}
-            />
-          </div>
-          {providerIdError && (
-            <div className="mt-1 text-[10px] text-destructive">
-              {providerIdError}
-            </div>
-          )}
         </div>
-        {editing ? (
-          <>
-            <Button variant="outline" size="sm" onClick={cancelEditing} disabled={saving}>
-              {t("settingsPage.actions.cancel")}
-            </Button>
-            <Button size="sm" onClick={() => void saveEditing()} disabled={saving}>
-              {t("settingsPage.actions.save")}
-            </Button>
-          </>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-            {t("settingsPage.actions.edit")}
-          </Button>
-        )}
-        <span className="text-muted-foreground">|</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onRemove}
-          disabled={saving}
-          className="text-destructive hover:text-destructive"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      <fieldset
-        disabled={!editing || saving}
-        className={cn(!editing && "opacity-95")}
-      >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
-        <label className="text-xs text-muted-foreground">
-          <span className="mb-1 block">
-            {t("pilotDeckConfig.panels.models.protocol")}
-          </span>
-          <Select
-            value={protocol}
-            onChange={(v) => update({ protocol: v as CatalogProviderProtocol })}
-            options={[
-              {
-                value: "openai",
-                label: t("pilotDeckConfig.panels.models.protocolOptions.openai"),
-              },
-              {
-                value: "openai-responses",
-                label: t(
-                  "pilotDeckConfig.panels.models.protocolOptions.openaiResponses",
-                ),
-              },
-              {
-                value: "anthropic",
-                label: t(
-                  "pilotDeckConfig.panels.models.protocolOptions.anthropic",
-                ),
-              },
-              {
-                value: "google",
-                label: t("pilotDeckConfig.panels.models.protocolOptions.google"),
-              },
-            ]}
-          />
-        </label>
-        <label className="text-xs text-muted-foreground">
-          <span className="mb-1 block">
-            {t("pilotDeckConfig.panels.models.baseUrl")}
-          </span>
-          <TextInput
-            value={draftProvider.url}
-            placeholder={effectiveCatalogEntry?.defaultUrl || "https://api.example.com/v1"}
-            monospace
-            onChange={(v) => update({ url: v })}
-          />
-          <span className="mt-0.5 block text-[10px] text-muted-foreground/70">
-            {t("pilotDeckConfig.panels.models.baseUrlHint")}
-          </span>
-          {!draftProvider.url && effectiveCatalogEntry && (
-            <span className="mt-0.5 block text-[10px] text-muted-foreground/70">
-              {t("pilotDeckConfig.panels.models.defaultsTo")}{" "}
-              <code className="font-mono">{effectiveCatalogEntry.defaultUrl}</code>{" "}
-              {t("pilotDeckConfig.panels.models.fromCatalog")}
-            </span>
+        <div className="detail-actions">
+          {editing ? (
+            <>
+              <button
+                className="button secondary compact"
+                type="button"
+                onClick={cancelEditing}
+                disabled={saving}
+              >
+                {t("settingsPage.actions.cancel")}
+              </button>
+              <button
+                className="button primary compact"
+                type="button"
+                onClick={() => void saveEditing()}
+                disabled={saving}
+              >
+                <SaveIcon /> {t("actions.saveChanges")}
+              </button>
+            </>
+          ) : (
+            <button
+              className="button secondary compact edit-provider-button"
+              type="button"
+              onClick={startEditing}
+              disabled={ownBusy}
+            >
+              <PencilIcon /> {t("settingsPage.actions.edit")}
+            </button>
           )}
-          {effectiveUrl && draftProvider.url && (
-            <span className="mt-0.5 block text-[10px] text-muted-foreground/70">
-              {t("pilotDeckConfig.panels.models.effective")}{" "}
-              <code className="font-mono">{effectiveUrl}</code>
-            </span>
-          )}
-        </label>
-      </div>
-
-      <label className="block text-xs text-muted-foreground">
-        <span className="mb-1 block">
-          {t("pilotDeckConfig.panels.models.apiKey")}
-          {!providerRequiresApiKeyInForm
-            ? ` (${t("pilotDeckConfig.panels.models.optional")})`
-            : ""}
-        </span>
-        <SecretTextInput
-          value={draftProvider.apiKey}
-          emptyPlaceholder={providerRequiresApiKeyInForm ? "sk-..." : ""}
-          maskedPlaceholder={t("pilotDeckConfig.panels.models.maskedKeyPlaceholder")}
-          onChange={(v) => update({ apiKey: v })}
-        />
-        {isMaskedKey && (
-          <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Info className="h-3 w-3" />
-            {t("pilotDeckConfig.panels.models.keyHidden")}
-          </span>
-        )}
-      </label>
-
-      <div>
-        <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{t("pilotDeckConfig.panels.models.enabledModels")}</span>
-          <span className="text-[10px] text-muted-foreground/60">
-            · <ImageIcon className="inline h-2.5 w-2.5" />{" "}
-            {t("pilotDeckConfig.panels.models.supportsImageInput")}
-          </span>
           <button
+            className="button destructive-outline compact"
             type="button"
-            onClick={refreshModels}
-            disabled={!canFetchModels || apiModelsStatus === "loading"}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void openDeleteDialog("provider")}
+            disabled={saving || ownBusy}
           >
-            <RefreshCw
-              className={cn(
-                "h-2.5 w-2.5",
-                apiModelsStatus === "loading" && "animate-spin",
-              )}
-            />
-            Fetch API models
+            <TrashIcon /> {t("pilotDeckConfig.actions.remove")}
           </button>
         </div>
+      </header>
 
-        {apiModelsStatus === "error" && apiModelsError && (
-          <div className="mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
-            {apiModelsError}
+      <div className="detail-scroll">
+        <section className="form-section">
+          <div className="section-heading">
+            <span className="section-icon"><LinkIcon /></span>
+            <div><h3>{t("pilotDeckConfig.panels.models.connectionInfo")}</h3></div>
           </div>
-        )}
 
-        {visibleModels.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {visibleModels.map((m) => {
-              const on = draftProvider.models && m.id in draftProvider.models;
-              return (
-                <div
-                  key={m.id}
-                  className={cn(
-                    "group inline-flex items-center rounded-md border text-[11px] transition-colors",
-                    on
-                      ? "border-foreground/30 bg-muted/60 text-foreground"
-                      : "border-border bg-muted text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                  )}
+          {editing && (
+            <label className="field">
+              <span>{t("pilotDeckConfig.panels.models.providerId")}</span>
+              <input
+                value={providerIdDraft}
+                onChange={(event) => {
+                  setProviderIdDraft(event.target.value);
+                  setProviderIdError("");
+                }}
+                className="mono"
+              />
+              {providerIdError ? <small className="field-error">{providerIdError}</small> : null}
+            </label>
+          )}
+
+          {editing && !effectiveCatalogEntry && (
+            <div className="connection-grid">
+              <label className="field">
+                <span>{t("pilotDeckConfig.panels.models.protocol")}</span>
+                <select
+                  value={protocol}
+                  onChange={(event) => update({ protocol: event.target.value as CatalogProviderProtocol })}
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleCatalogModel(m.id)}
-                    className="inline-flex items-center gap-1 px-2 py-1"
-                    title={
-                      on
-                        ? t("pilotDeckConfig.panels.models.clickDisable")
-                        : t("pilotDeckConfig.panels.models.clickEnable")
-                    }
-                  >
-                    {on && (
-                      <Check className="h-3 w-3 text-foreground" strokeWidth={2.5} />
-                    )}
-                    {m.displayName}
-                    {"supportsImage" in m && m.supportsImage && (
-                      <ImageIcon
-                        className="h-3 w-3 text-muted-foreground/70"
-                        strokeWidth={2}
-                      />
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                  <option value="openai">{t("pilotDeckConfig.panels.models.protocolOptions.openai")}</option>
+                  <option value="openai-responses">{t("pilotDeckConfig.panels.models.protocolOptions.openaiResponses")}</option>
+                  <option value="anthropic">{t("pilotDeckConfig.panels.models.protocolOptions.anthropic")}</option>
+                  <option value="google">{t("pilotDeckConfig.panels.models.protocolOptions.google")}</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>{t("pilotDeckConfig.panels.models.baseUrl")}</span>
+                <input
+                  value={draftProvider.url ?? ""}
+                  placeholder="https://api.example.com/v1"
+                  className="mono"
+                  onChange={(event) => update({ url: event.target.value })}
+                />
+              </label>
+            </div>
+          )}
 
-        {enabledModels
-          .filter((mid) => !visibleModels.some((m) => m.id === mid))
-          .map((mid) => (
-            <div
-              key={mid}
-              className="mb-1 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px]"
-            >
-              <code className="flex-1 truncate font-mono">{mid}</code>
+          <label className="field api-field">
+            <span>
+              {t("pilotDeckConfig.panels.models.apiKey")}
+              {!providerRequiresApiKey ? ` (${t("pilotDeckConfig.panels.models.optional")})` : ""}
+            </span>
+            <span className="secret-input">
+              <KeyIcon />
+              <input
+                required={providerRequiresApiKey}
+                placeholder={t("pilotDeckConfig.panels.models.apiKeyPlaceholder")}
+                aria-invalid="false"
+                aria-label={t("pilotDeckConfig.panels.models.apiKey")}
+                type="password"
+                value={apiKeyInputValue}
+                disabled={fieldsDisabled}
+                onChange={(event) => update({ apiKey: event.target.value })}
+              />
+            </span>
+            {isMaskedKey ? (
+              <small className="field-help">
+                <InfoIcon /> {t("pilotDeckConfig.panels.models.keySaved")}
+              </small>
+            ) : null}
+          </label>
+        </section>
+
+        <section className="form-section models-section">
+          <div className="section-heading with-meta">
+            <span className="section-icon"><StackIcon /></span>
+            <div><h3>{t("pilotDeckConfig.panels.models.enabledModels")}</h3></div>
+            <span className="model-count">{enabledModels.length}</span>
+          </div>
+
+          <div className="model-list">
+            {enabledModels.map((mid) => (
+              <div className="model-row" key={mid}>
+                <strong className="model-name">{modelLabel(mid)}</strong>
+                <label className="model-token-field">
+                  <span>{t("pilotDeckConfig.panels.models.maxOutputTokens")}</span>
+                  <input
+                    aria-label={`${modelLabel(mid)} ${t("pilotDeckConfig.panels.models.maxOutputTokens")}`}
+                    type="text"
+                    inputMode="numeric"
+                    value={tokenValue(mid, "maxOutputTokens")}
+                    disabled={fieldsDisabled}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next) && next > 0) {
+                        patchModelCapabilities(mid, { maxOutputTokens: next });
+                      }
+                    }}
+                  />
+                </label>
+                <label className="model-token-field">
+                  <span>{t("pilotDeckConfig.panels.models.maxContextTokens")}</span>
+                  <input
+                    aria-label={`${modelLabel(mid)} ${t("pilotDeckConfig.panels.models.maxContextTokens")}`}
+                    type="text"
+                    inputMode="numeric"
+                    value={tokenValue(mid, "maxContextTokens")}
+                    disabled={fieldsDisabled}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next) && next > 0) {
+                        patchModelCapabilities(mid, { maxContextTokens: next });
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  aria-label={t("pilotDeckConfig.panels.models.removeModelAria", { name: modelLabel(mid) })}
+                  disabled={fieldsDisabled || ownBusy}
+                  onClick={() => void openDeleteDialog("model", mid)}
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {editing && (
+          <section className="form-section candidate-models-section">
+            <div className="section-heading with-meta">
+              <span className="section-icon"><StackIcon /></span>
+              <div><h3>{t("pilotDeckConfig.panels.models.candidateModels")}</h3></div>
+              <span className="model-count">{candidateModels.length}</span>
               <button
                 type="button"
-                onClick={() => removeModel(mid)}
-                className="text-muted-foreground hover:text-destructive"
-                title={t("pilotDeckConfig.actions.remove")}
+                className="fetch-models-button"
+                onClick={() => void refreshModels()}
+                disabled={!canFetchModels || apiModelsStatus === "loading"}
               >
-                <Trash2 className="h-3 w-3" />
+                <RefreshIcon className={cn(apiModelsStatus === "loading" && "spin")} />
+                {t("pilotDeckConfig.panels.models.fetchApiModels")}
               </button>
             </div>
-          ))}
 
-        <div className="flex items-center gap-2">
-          <input
-            value={newModelId}
-            onChange={(e) => setNewModelId(e.target.value)}
-            placeholder={t("pilotDeckConfig.panels.models.customModelPlaceholder")}
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !isImeEnterEvent(e)) addModel(newModelId);
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => addModel(newModelId)}
-            disabled={!newModelId.trim()}
-          >
-            <Plus className="mr-1 h-3 w-3" />
-            {t("pilotDeckConfig.actions.add")}
-          </Button>
-        </div>
-      </div>
+            <label className="candidate-model-search">
+              <SearchIcon />
+              <input
+                value={modelSearch}
+                onChange={(event) => setModelSearch(event.target.value)}
+                placeholder={t("pilotDeckConfig.panels.models.searchCandidateModels")}
+                aria-label={t("pilotDeckConfig.panels.models.searchCandidateModels")}
+              />
+            </label>
 
-      </fieldset>
+            {apiModelsStatus === "error" && apiModelsError ? (
+              <div className="field-error banner">{apiModelsError}</div>
+            ) : null}
 
-      <div className="px-4 pb-4">
-        <button
-          type="button"
-          onClick={() => setShowProviderAdvanced((v) => !v)}
-          aria-expanded={showProviderAdvanced}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium leading-5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ChevronDown
-            className={cn(
-              "h-3.5 w-3.5 transition-transform",
-              showProviderAdvanced && "rotate-180",
-            )}
-          />
-          {t("pilotDeckConfig.panels.models.providerAdvancedToggle")}
-        </button>
-        {showProviderAdvanced && (
-          <fieldset
-            disabled={!editing || saving}
-            className={cn(!editing && "opacity-95")}
-          >
-            <div className="mt-3 space-y-3 divide-y divide-border rounded-md border border-border p-3">
-              <FormRow
-                label={t(
-                  "pilotDeckConfig.panels.models.providerRetry.requestMaxRetries.label",
-                )}
-                description={t(
-                  "pilotDeckConfig.panels.models.providerRetry.requestMaxRetries.description",
-                )}
+            <div className="candidate-model-list">
+              <button
+                type="button"
+                className="candidate-add-model"
+                onClick={openCustomModelInput}
               >
-                <NumberInput
-                  value={draftProvider.retry?.requestMaxRetries}
-                  placeholder="2"
-                  onChange={(v) =>
-                    update({
-                      retry: { ...draftProvider.retry, requestMaxRetries: v },
-                    })
-                  }
+                <PlusIcon size={14} />
+                {t("pilotDeckConfig.panels.models.addModelId")}
+              </button>
+              {draftCustomModelId != null ? (
+                <input
+                  className="candidate-model-input"
+                  type="text"
+                  value={draftCustomModelId}
+                  placeholder={t("pilotDeckConfig.panels.models.customModelIdPlaceholder")}
+                  aria-label={t("pilotDeckConfig.panels.models.customModelIdPlaceholder")}
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => setDraftCustomModelId(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !isImeEnterEvent(event)) {
+                      event.preventDefault();
+                      commitCustomModel();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setDraftCustomModelId(null);
+                    }
+                  }}
                 />
-              </FormRow>
-              <FormRow
-                label={t(
-                  "pilotDeckConfig.panels.models.providerRetry.streamMaxRetries.label",
-                )}
-                description={t(
-                  "pilotDeckConfig.panels.models.providerRetry.streamMaxRetries.description",
-                )}
-              >
-                <NumberInput
-                  value={draftProvider.retry?.streamMaxRetries}
-                  placeholder="3"
-                  onChange={(v) =>
-                    update({
-                      retry: { ...draftProvider.retry, streamMaxRetries: v },
-                    })
-                  }
-                />
-              </FormRow>
-              <FormRow
-                label={t(
-                  "pilotDeckConfig.panels.models.providerRetry.streamIdleTimeoutMs.label",
-                )}
-                description={t(
-                  "pilotDeckConfig.panels.models.providerRetry.streamIdleTimeoutMs.description",
-                )}
-              >
-                <NumberInput
-                  value={draftProvider.retry?.streamIdleTimeoutMs}
-                  placeholder="600000"
-                  onChange={(v) =>
-                    update({
-                      retry: { ...draftProvider.retry, streamIdleTimeoutMs: v },
-                    })
-                  }
-                />
-              </FormRow>
-              <FormRow
-                label={t(
-                  "pilotDeckConfig.panels.models.providerRetry.baseDelayMs.label",
-                )}
-                description={t(
-                  "pilotDeckConfig.panels.models.providerRetry.baseDelayMs.description",
-                )}
-              >
-                <NumberInput
-                  value={draftProvider.retry?.baseDelayMs}
-                  placeholder="1000"
-                  onChange={(v) =>
-                    update({
-                      retry: { ...draftProvider.retry, baseDelayMs: v },
-                    })
-                  }
-                />
-              </FormRow>
-              <FormRow
-                label={t(
-                  "pilotDeckConfig.panels.models.providerRetry.maxDelayMs.label",
-                )}
-                description={t(
-                  "pilotDeckConfig.panels.models.providerRetry.maxDelayMs.description",
-                )}
-              >
-                <NumberInput
-                  value={draftProvider.retry?.maxDelayMs}
-                  placeholder="60000"
-                  onChange={(v) =>
-                    update({
-                      retry: { ...draftProvider.retry, maxDelayMs: v },
-                    })
-                  }
-                />
-              </FormRow>
+              ) : null}
+              {candidateModels.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className="candidate-model"
+                  title={model.id}
+                  onClick={() => addModel(model.id)}
+                >
+                  <span>{model.id}</span>
+                </button>
+              ))}
             </div>
-          </fieldset>
+          </section>
+        )}
+
+        {!editing && (
+          <section className="detail-test-section" aria-label={t("pilotDeckConfig.panels.models.testConnection")}>
+            <p className="test-cost-note">{t("pilotDeckConfig.panels.models.testCostNote")}</p>
+            <div className="test-row">
+              {(testStatus === "error" || testStatus === "saveError") && testMessage ? (
+                <div className="test-failure-message">
+                  <PendingIcon size={16} />
+                  <strong>{t(`pilotDeckConfig.panels.models.${testStatus === "saveError" ? "testSaveFailed" : "testFailed"}`)}</strong>
+                  <span title={testMessage}>{testMessage}</span>
+                </div>
+              ) : null}
+              {tests.errorCode && <span role="status">{t(`pilotDeckConfig.panels.models.${tests.errorCode === "RATE_LIMITED" ? "testRateLimited" : tests.errorCode === "TEST_BUSY" ? "testBusy" : tests.errorCode === "STATUS_UNAVAILABLE" ? "testStatusUnavailable" : "testRequestFailed"}`)}</span>}
+              <button
+                className={cn("test-button", testStatus)}
+                type="button"
+                disabled={testDisabled || !configured}
+                onClick={() => void (testStatus === "saveError" && task ? tests.retry(task.id) : tests.start(providerId))}
+              >
+                {tests.checking ? t("pilotDeckConfig.panels.models.checkingTestStatus")
+                  : testStatus === "savingTest" ? t("pilotDeckConfig.panels.models.savingTest")
+                  : testStatus === "testing" ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.testing")}</>
+                  : testStatus === "cancelling" ? t("pilotDeckConfig.panels.models.cancellingTest")
+                  : testStatus === "manual" ? t("pilotDeckConfig.panels.models.awaitingImageConfirmation")
+                  : testStatus === "saveError" ? t("pilotDeckConfig.panels.models.retryTestSave")
+                  : testStatus === "success" ? <><CheckCircleIcon /> {t("pilotDeckConfig.panels.models.connectionNormal")}</>
+                  : testStatus === "error" || testStatus === "cancelled" ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retest")}</>
+                  : <><PlugIcon /> {t("pilotDeckConfig.panels.models.testConnection")}</>}
+              </button>
+              {testStatus === "saveError" && (
+                <button className="test-button" type="button" disabled={testDisabled || !configured} onClick={() => void tests.start(providerId)}>
+                  {t("pilotDeckConfig.panels.models.retest")}
+                </button>
+              )}
+              {task && ["testing", "manual"].includes(testStatus) && (
+                <button className="test-button" type="button" disabled={tests.pending} onClick={() => void tests.cancel(task.id)}>
+                  {t("pilotDeckConfig.panels.models.cancelTest")}
+                </button>
+              )}
+
+            </div>
+          </section>
         )}
       </div>
-    </div>
+      {manualModelIds.length > 0 && (
+        <ImageCapabilityModal
+          key={task?.id}
+          modelIds={manualModelIds}
+          onCancel={() => { if (task && !tests.pending) void tests.cancel(task.id); }}
+          onConfirm={(values) => { if (task) void tests.confirm(task.id, values); }}
+        />
+      )}
+      {deleteDialog && (
+        <DeleteConfirmationModal
+          kind={deleteDialog.kind}
+          name={deleteDialog.name}
+          usages={deleteDialog.usages}
+          loading={deleteDialog.loading}
+          error={deleteDialog.error}
+          replacementOptions={defaultModelOptions.filter(ref => deleteDialog.kind === "provider"
+            ? !ref.startsWith(`${providerId}/`)
+            : ref !== `${providerId}/${deleteDialog.modelId}`)}
+          onReplaceDefault={onReplaceDefaultModel ? async (modelRef) => {
+            const target = deleteDialog;
+            const result = await onReplaceDefaultModel(modelRef, target.kind === "model" ? target.modelId : undefined);
+            if (!result.ok) throw new Error(result.error || t("pilotDeckConfig.panels.models.deleteDialog.replaceFailed"));
+            setDeleteDialog(null);
+            setEditing(false);
+          } : undefined}
+          onCancel={() => setDeleteDialog(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </section>
   );
 }

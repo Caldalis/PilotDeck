@@ -29,6 +29,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('global model selection', () => {
+  it('blocks sending silently when the pool is cleared and accepts a new default after refill', async () => {
+    const hook = setup(); await ready(hook);
+    await act(() => hook.result.current.setModelSelection(A));
+    mocks.fetch.mockResolvedValueOnce(json({ items: [], defaultSelection: null }));
+    emit({ type: 'config:reloaded' });
+    await waitFor(() => expect(hook.result.current.isModelCatalogLoading).toBe(false));
+    expect(hook.result.current.isModelSelectionReady).toBe(false);
+    expect(hook.result.current.modelSelection).toBeNull();
+    expect(hook.result.current.modelCatalogError).toBeNull();
+    expect(saved()).toBeNull();
+    mocks.fetch.mockResolvedValueOnce(json(catalog));
+    emit({ type: 'config:reloaded' });
+    await ready(hook);
+    expect(hook.result.current.modelSelection).toEqual(B);
+  });
+
   it('uses the configured default, never the first catalog row, without saving it as a manual preference', async () => {
     const hook = setup();
     expect(hook.result.current.isModelSelectionReady).toBe(false);
