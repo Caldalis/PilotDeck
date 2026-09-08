@@ -1056,7 +1056,7 @@
           "replacementLabel": "Replacement default model",
           "chooseReplacement": "Choose a model",
           "noReplacement": "Add another configured model before removing this default model.",
-          "replaceDefault": "Save as default model",
+          "replaceDefault": "Replace default and delete",
           "replaceFailed": "Failed to change the default model.",
           "replacementUnavailable": "The replacement model is no longer available.",
           "modelTitle": "Delete “{{name}}” model?",

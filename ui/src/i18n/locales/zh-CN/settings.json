@@ -1056,7 +1056,7 @@
           "replacementLabel": "替代的默认模型",
           "chooseReplacement": "请选择模型",
           "noReplacement": "请先添加另一个配置完整的模型，再移除当前默认模型。",
-          "replaceDefault": "保存为默认模型",
+          "replaceDefault": "替换默认模型并删除",
           "replaceFailed": "修改默认模型失败。",
           "replacementUnavailable": "所选替代模型已不可用。",
           "modelTitle": "删除“{{name}}”模型？",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isCronConfigEnabled } from "../utils/cron";
 import { patch } from "../../modelPool/utils/patch";
 import type { PilotDeckConfig } from "../../modelPool/types";
 
@@ -174,7 +175,7 @@ export default function CronSection({ config, onChange }: CronSectionProps) {
       className="scheduled-card"
       aria-label={t("pilotDeckConfig.panels.cron.configAria")}
     >
-      {cron.enabled === false && (
+      {!isCronConfigEnabled(config) && (
         <div className="scheduled-setting-row" role="status">
           <div className="scheduled-setting-copy">
             <strong>{t("pilotDeckConfig.panels.cron.disabledStatus")}</strong>

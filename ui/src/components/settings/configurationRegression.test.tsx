@@ -88,11 +88,11 @@ it('fetches catalog provider models from the configured proxy endpoint', async (
   const request = mocks.fetch.mock.calls.find(([url]) => url === '/api/config/models')!;
   expect(new URL(JSON.parse(request[1].body).baseUrl).origin).toBe('https://proxy.example');
 });
-it('offers a way to re-enable an explicitly disabled scheduler', () => {
+it.each([undefined, { enabled: false, timezone: 'UTC' }])('offers a way to enable a missing or disabled scheduler: %j', (cron) => {
   const onChange = vi.fn();
-  render(<CronSection config={{ cron: { enabled: false, timezone: 'UTC' } }} onChange={onChange} />);
+  render(<CronSection config={{ cron }} onChange={onChange} />);
   fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.cron.enableAction' }));
-  expect(onChange.mock.calls[0][0].cron).toEqual({enabled: true, timezone: 'UTC'});
+  expect(onChange.mock.calls[0][0].cron).toEqual({...cron, enabled: true});
 });
 
 it.each(['bearer', 'queryApiKey', 'bodyApiKey', 'none'] as const)('preserves %s search authentication when saving a new key', (auth) => {

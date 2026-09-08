@@ -61,7 +61,7 @@ type ProviderCardProps = {
   catalogEntry?: CatalogProvider;
   initialEditing?: boolean;
   defaultModelOptions?: string[];
-  onReplaceDefaultModel?: (modelRef: string) => Promise<{ ok: boolean; error?: string }>;
+  onReplaceDefaultModel?: (modelRef: string, modelId?: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 type DeleteDialogState = {
@@ -751,9 +751,10 @@ export default function ProviderCard({
             : ref !== `${providerId}/${deleteDialog.modelId}`)}
           onReplaceDefault={onReplaceDefaultModel ? async (modelRef) => {
             const target = deleteDialog;
-            const result = await onReplaceDefaultModel(modelRef);
+            const result = await onReplaceDefaultModel(modelRef, target.kind === "model" ? target.modelId : undefined);
             if (!result.ok) throw new Error(result.error || t("pilotDeckConfig.panels.models.deleteDialog.replaceFailed"));
-            await openDeleteDialog(target.kind, target.modelId);
+            setDeleteDialog(null);
+            setEditing(false);
           } : undefined}
           onCancel={() => setDeleteDialog(null)}
           onConfirm={confirmDelete}

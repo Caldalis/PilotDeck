@@ -280,15 +280,26 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
             isProviderConfigured(value, findCatalogProviderById(id))
               ? Object.keys(value.models ?? {}).map(modelId => `${id}/${modelId}`)
               : [])}
-          onReplaceDefaultModel={async (modelRef) => {
+          onReplaceDefaultModel={async (modelRef, modelId) => {
             const slash = modelRef.indexOf("/");
             const candidateId = modelRef.slice(0, slash);
             const candidate = providers[candidateId];
-            if (slash < 1 || !candidate?.models?.[modelRef.slice(slash + 1)]
+            if (slash < 1 || !Object.prototype.hasOwnProperty.call(candidate?.models ?? {}, modelRef.slice(slash + 1))
               || !isProviderConfigured(candidate, findCatalogProviderById(candidateId))) {
               return { ok: false, error: t("pilotDeckConfig.panels.models.deleteDialog.replacementUnavailable") };
             }
-            return applyChange(patch(config, ["agent", "model"], modelRef));
+            const remaining = { ...providers };
+            if (modelId !== undefined) {
+              const models = { ...remaining[selectedId]?.models };
+              delete models[modelId];
+              remaining[selectedId] = { ...remaining[selectedId], models };
+            } else {
+              delete remaining[selectedId];
+            }
+            // Submit a valid final configuration; an intermediate save would still
+            // contain the broken provider and fail validation before deletion.
+            const next = patch(patch(config, ["agent", "model"], modelRef), ["model", "providers"], remaining);
+            return applyChange(next);
           }}
           onSave={(nextId, nextProvider) => (
             selectedIsPending

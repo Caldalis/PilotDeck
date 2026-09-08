@@ -64,8 +64,11 @@ export default function DeleteConfirmationModal({
   const [replacement, setReplacement] = useState("");
   const [replacing, setReplacing] = useState(false);
   const [replacementError, setReplacementError] = useState("");
+  const hasDefaultReference = usages.some(item => item.reference.path === "agent.model");
+  const hasOtherReferences = usages.some(item => item.reference.path !== "agent.model");
+  const canReplace = Boolean(onReplaceDefault && hasDefaultReference && !hasOtherReferences);
   const replaceDefault = async () => {
-    if (!onReplaceDefault || replacing || !replacementOptions.includes(replacement)) return;
+    if (!onReplaceDefault || !canReplace || loading || error || replacing || !replacementOptions.includes(replacement)) return;
     setReplacing(true);
     setReplacementError("");
     try { await onReplaceDefault(replacement); }
@@ -73,7 +76,7 @@ export default function DeleteConfirmationModal({
     finally { setReplacing(false); }
   };
   const inUse = usages.length > 0;
-  const blocked = loading || replacing || Boolean(error) || inUse;
+  const blocked = loading || replacing || Boolean(error) || (inUse && !(canReplace && replacementOptions.includes(replacement)));
   const title = inUse
     ? kind === "model"
       ? t("pilotDeckConfig.panels.models.deleteDialog.modelBlockedTitle", { name })
@@ -142,10 +145,6 @@ export default function DeleteConfirmationModal({
                 </select>
               </label>
               {replacementOptions.length === 0 && <p>{t("pilotDeckConfig.panels.models.deleteDialog.noReplacement")}</p>}
-              <button className="button secondary compact" type="button"
-                disabled={replacing || !replacementOptions.includes(replacement)} onClick={() => void replaceDefault()}>
-                {t("pilotDeckConfig.panels.models.deleteDialog.replaceDefault")}
-              </button>
             </div>
           )}
           {replacementError && <p role="alert">{replacementError}</p>}
@@ -155,8 +154,8 @@ export default function DeleteConfirmationModal({
           <button className="button secondary" type="button" disabled={replacing} onClick={onCancel}>
             {t("settingsPage.actions.cancel")}
           </button>
-          <button className="button danger" type="button" disabled={blocked} onClick={onConfirm}>
-            {t("pilotDeckConfig.panels.models.deleteDialog.delete")}
+          <button className="button danger" type="button" disabled={blocked} onClick={() => { if (canReplace) void replaceDefault(); else onConfirm(); }}>
+            {t(`pilotDeckConfig.panels.models.deleteDialog.${canReplace ? "replaceDefault" : "delete"}`)}
           </button>
         </footer>
       </section>

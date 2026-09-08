@@ -92,24 +92,26 @@ home's `permissions.json`:
 - Custom search endpoint/key edits and connection tests preserve the configured
   authentication mode. Minute-based memory consolidation intervals remain lossless.
 - The primary-agent page stays out of navigation. When deleting a referenced default
-  model/provider, its dialog allows explicitly saving a replacement default, then
-  rechecks references before allowing deletion. Other model references still block
-  deletion, and a failed replacement does not authorize removal.
+  model/provider, its dialog saves the replacement default and deletion together.
+  This allows recovery from an invalid provider without saving an invalid intermediate
+  config. Empty/null model definitions remain valid replacement choices. Other model
+  references still block deletion, and a failed save retains the existing config.
 - Built-in provider URLs/protocols remain fixed in the form. Model listing honors
   saved custom endpoints; DeepSeek's special list URL applies only to its official
   endpoint. Masked-key origin checks remain enforced.
-- An explicitly disabled scheduler displays an enable action; normal users do not
+- A missing cron block or explicitly disabled scheduler displays an enable action; normal users do not
   get an additional master toggle. Implicit defaults match runtime: UTC and one run.
 - Unsupported desktop/current/silent notification choices are removed. Saving
   resident parameters preserves the existing preferred channel instead of rewriting it.
 - Mobile navigation opens General on the first selection.
 - Focused interaction regressions cover these decisions. Isolated Chromium with the
-  real config API verifies default replacement and deletion, Gateway/catalog recovery,
+  real config API verifies single-save recovery from a broken built-in provider using
+  a null model definition, Gateway/catalog recovery,
   DeepSeek proxy model listing, scheduler enabling and mobile navigation.
 
 ## Validation
 
-- Web Regression's local suite: **172 files, 1,395 tests passed** with the same
+- Web Regression's local suite: **172 files, 1,401 tests passed** with the same
   existing CI exclusions for Playwright E2E, streamSmoother and desktop network tests.
 - Model parsing and Pilot config loading tests: **18 passed**.
 - Desktop packaging helper tests: **41 passed**; desktop updater network tests passed.
