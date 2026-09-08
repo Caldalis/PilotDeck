@@ -688,9 +688,6 @@ export default function ProviderCard({
                 </div>
               ) : null}
               {tests.errorCode && <span role="status">{t(`pilotDeckConfig.panels.models.${tests.errorCode === "RATE_LIMITED" ? "testRateLimited" : tests.errorCode === "TEST_BUSY" ? "testBusy" : tests.errorCode === "STATUS_UNAVAILABLE" ? "testStatusUnavailable" : "testRequestFailed"}`)}</span>}
-              {activeTask && activeTask.providerId !== providerId && (
-                <span role="status">{t("pilotDeckConfig.panels.models.otherProviderTesting", { provider: activeTask.providerId })}</span>
-              )}
               <button
                 className={cn("test-button", testStatus)}
                 type="button"
@@ -724,6 +721,7 @@ export default function ProviderCard({
       </div>
       {manualModelIds.length > 0 && (
         <ImageCapabilityModal
+          key={task?.id}
           modelIds={manualModelIds}
           onCancel={() => { if (task && !tests.pending) void tests.cancel(task.id); }}
           onConfirm={(values) => { if (task) void tests.confirm(task.id, values); }}

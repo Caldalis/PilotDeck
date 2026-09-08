@@ -31,7 +31,9 @@ export function useConnectionTestTasks() {
       if (!response.ok) throw new Error('Status unavailable');
       const data = await response.json();
       if (mounted.current && current === version.current) {
-        setTasks(data.tasks || []); setChecking(false); setErrorCode('');
+        const next: ConnectionTestTask[] = data.tasks || [];
+        setTasks(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+        setChecking(false); setErrorCode('');
       }
     } catch {
       if (mounted.current && current === version.current && (!signal.aborted || signal.reason?.name === 'TimeoutError')) {

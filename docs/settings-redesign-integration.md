@@ -54,8 +54,7 @@ home's `permissions.json`:
   image confirmation. The settings card polls its status; switching providers,
   leaving settings, or refreshing the browser does not stop the task or lose it.
 - Test buttons are disabled while reading status, submitting, testing, confirming
-  image capabilities, cancelling or saving. Other providers identify the active
-  provider. Cancellation aborts the probe and releases the slot after it settles.
+  image capabilities, cancelling or saving. Other providers show only a disabled test button. Cancellation aborts the probe and releases the slot after it settles.
 - Successful results bind to the latest on-disk config under the config write lock.
   Unrelated edits are preserved; changed credentials/endpoints or removed models
   reject the binding. A failed save can retry without another probe.
@@ -63,6 +62,9 @@ home's `permissions.json`:
   Terminal results are retained in memory for one hour; pending manual confirmation
   and failed-save records expire after ten minutes. Restarting the backend ends
   in-memory tasks. Browser refresh reconnects to the still-running backend task.
+- Manual image choices survive repeated polling and equivalent model lists. New
+  task IDs reset the dialog; unchanged snapshots do not rerender the card. Slow
+  browser checks wait multiple polling cycles between selections and before submit.
 - Chromium checks cover provider/page switching, refresh, completion with settings
   closed, grey disabled test buttons, save-failure recovery, cancellation and manual
   image confirmation across navigation.

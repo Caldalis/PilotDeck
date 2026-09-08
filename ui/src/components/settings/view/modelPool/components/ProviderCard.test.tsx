@@ -185,6 +185,33 @@ describe("ProviderCard connection badge", () => {
     expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testing" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("retains manual choices across changed polling snapshots until confirmation", async () => {
+    let polls = 0;
+    let status = "manual";
+    mocks.authenticatedFetch.mockImplementation(async (_url, options) => {
+      if (options?.method === "PUT") status = "success";
+      else polls++;
+      return { ok: true, json: async () => ({ tasks: [{
+        id: "manual-task", providerId: "HXAPI", status, updatedAt: polls,
+        result: { models: ["one", "two"].map(modelId => ({ modelId, textInput: "supported", imageInput: "unknown" })) },
+      }] }) };
+    });
+    render(<ProviderCard providerId="HXAPI" provider={{ protocol: "openai", url: "https://example.test", apiKey: "********", models: { one: {}, two: {} } }} onSave={vi.fn()} onRemove={vi.fn()} />);
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getAllByRole("radio", { name: "connection.manualUnsupported" })[0]);
+    await waitFor(() => expect(polls).toBeGreaterThanOrEqual(3), { timeout: 4000 });
+    expect((screen.getAllByRole("radio", { name: "connection.manualUnsupported" })[0] as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getAllByRole("radio", { name: "connection.manualSupported" })[1]);
+    const before = polls;
+    await waitFor(() => expect(polls).toBeGreaterThan(before), { timeout: 3000 });
+    fireEvent.click(screen.getByRole("button", { name: "connection.manualConfirm" }));
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.connectionNormal" });
+    const submission = mocks.authenticatedFetch.mock.calls.find(([, options]) => options?.method === "PUT");
+    expect(JSON.parse(submission?.[1].body)).toEqual({ models: [
+      { modelId: "one", imageInput: "unsupported" }, { modelId: "two", imageInput: "supported" },
+    ] });
+  });
+
   it("restores a running task after remount and disables testing on other providers", async () => {
     let tasks: Array<Record<string, unknown>> = [];
     mocks.authenticatedFetch.mockImplementation(async (_url, options) => {
@@ -199,7 +226,8 @@ describe("ProviderCard connection badge", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testing" }) as HTMLButtonElement).disabled).toBe(true));
     first.unmount();
     const other = render(<ProviderCard providerId="aicore" {...props} />);
-    expect(await screen.findByText("pilotDeckConfig.panels.models.otherProviderTesting")).toBeTruthy();
+    await screen.findByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" });
+    expect(screen.queryByText("pilotDeckConfig.panels.models.otherProviderTesting")).toBeNull();
     expect((screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }) as HTMLButtonElement).disabled).toBe(true);
     other.unmount();
     render(<ProviderCard providerId="HXAPI" {...props} />);
