@@ -516,7 +516,6 @@ export default function ProviderCard({
                   className="mono"
                   onChange={(event) => update({ url: event.target.value })}
                 />
-                <small className="field-help">{t("pilotDeckConfig.panels.models.baseUrlHint")}</small>
               </label>
             </div>
           )}
