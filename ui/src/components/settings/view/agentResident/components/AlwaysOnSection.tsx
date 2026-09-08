@@ -16,18 +16,15 @@ type AlwaysOnSectionProps = {
   onChange: (next: PilotDeckConfig) => void;
 };
 
-const CHANNEL_OPTIONS = ["desktop", "current", "silent"] as const;
-
 type TriggerDraft = {
   tickIntervalMinutes: string;
   cooldownMinutes: string;
   dailyBudget: string;
   heartbeatStaleSeconds: string;
   recentUserMsgMinutes: string;
-  preferChannel: string;
 };
 
-type NumericTriggerKey = Exclude<keyof TriggerDraft, "preferChannel">;
+type NumericTriggerKey = keyof TriggerDraft;
 
 const DEFAULT_TRIGGER_VALUES: Record<NumericTriggerKey, number> = {
   tickIntervalMinutes: 5,
@@ -48,21 +45,6 @@ function SearchIcon() {
       aria-hidden="true"
     >
       <path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="14"
-      height="14"
-      fill="currentColor"
-      viewBox="0 0 256 256"
-      aria-hidden="true"
-    >
-      <path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z" />
     </svg>
   );
 }
@@ -127,12 +109,6 @@ function triggerToDraft(
   trigger: NonNullable<PilotDeckConfig["alwaysOn"]>["trigger"],
   clearedFields: ReadonlySet<NumericTriggerKey> = new Set(),
 ): TriggerDraft {
-  const preferredChannel = CHANNEL_OPTIONS.includes(
-    trigger?.preferChannel as (typeof CHANNEL_OPTIONS)[number],
-  )
-    ? trigger?.preferChannel
-    : "current";
-
   return {
     tickIntervalMinutes: numberToDraft(
       trigger?.tickIntervalMinutes,
@@ -159,7 +135,6 @@ function triggerToDraft(
       DEFAULT_TRIGGER_VALUES.recentUserMsgMinutes,
       clearedFields.has("recentUserMsgMinutes"),
     ),
-    preferChannel: preferredChannel ?? "",
   };
 }
 
@@ -244,7 +219,6 @@ export default function AlwaysOnSection({
       dailyBudget: parseOptionalNumber(draft.dailyBudget),
       heartbeatStaleSeconds: parseOptionalNumber(draft.heartbeatStaleSeconds),
       recentUserMsgMinutes: parseOptionalNumber(draft.recentUserMsgMinutes),
-      preferChannel: draft.preferChannel,
     };
     onChange(patch(config, ["alwaysOn", "trigger"], nextTrigger));
     setEditing(false);
@@ -448,39 +422,6 @@ export default function AlwaysOnSection({
                     "pilotDeckConfig.panels.alwaysOn.trigger.recentUserMsg.description",
                     "recentUserMsgMinutes",
                   )}
-                  <div className="resident-setting-row">
-                    <div className="resident-setting-copy">
-                      <label htmlFor="resident-preferred-channel">
-                        {t(
-                          "pilotDeckConfig.panels.alwaysOn.trigger.preferChannel.label",
-                        )}
-                      </label>
-                      <p>
-                        {t(
-                          "pilotDeckConfig.panels.alwaysOn.trigger.preferChannel.description",
-                        )}
-                      </p>
-                    </div>
-                    <div className="resident-select-wrap">
-                      <select
-                        id="resident-preferred-channel"
-                        disabled={!editing}
-                        value={draft.preferChannel}
-                        onChange={(event) =>
-                          updateDraft("preferChannel", event.target.value)
-                        }
-                      >
-                        {CHANNEL_OPTIONS.map((value) => (
-                          <option key={value} value={value}>
-                            {t(
-                              `pilotDeckConfig.panels.alwaysOn.trigger.preferChannel.options.${value}`,
-                            )}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronIcon />
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

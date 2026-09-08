@@ -54,7 +54,10 @@ export default function ServiceSection({
   };
 
   const commit = async () => {
-    if (draft && (await onSave(draft))) setDraft(null);
+    if (!draft) return;
+    let next = config;
+    for (const field of fields) next = patch(next, field.path, field.value);
+    if (await onSave(next)) setDraft(null);
   };
 
   return (

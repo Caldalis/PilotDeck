@@ -17,6 +17,7 @@ import {
 import {
   countEnabledModels,
   isProviderPending,
+  isProviderConfigured,
 } from "../utils/providerStatus";
 import CatalogPicker from "./CatalogPicker";
 import { PlusIcon, SearchIcon } from "./icons";
@@ -275,6 +276,20 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
           provider={selectedProvider}
           isNew={selectedIsPending}
           catalogEntry={selectedCatalog}
+          defaultModelOptions={Object.entries(providers).flatMap(([id, value]) =>
+            isProviderConfigured(value, findCatalogProviderById(id))
+              ? Object.keys(value.models ?? {}).map(modelId => `${id}/${modelId}`)
+              : [])}
+          onReplaceDefaultModel={async (modelRef) => {
+            const slash = modelRef.indexOf("/");
+            const candidateId = modelRef.slice(0, slash);
+            const candidate = providers[candidateId];
+            if (slash < 1 || !candidate?.models?.[modelRef.slice(slash + 1)]
+              || !isProviderConfigured(candidate, findCatalogProviderById(candidateId))) {
+              return { ok: false, error: t("pilotDeckConfig.panels.models.deleteDialog.replacementUnavailable") };
+            }
+            return applyChange(patch(config, ["agent", "model"], modelRef));
+          }}
           onSave={(nextId, nextProvider) => (
             selectedIsPending
               ? savePendingProvider(nextId, nextProvider)

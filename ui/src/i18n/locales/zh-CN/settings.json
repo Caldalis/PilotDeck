@@ -1053,6 +1053,12 @@
         "testFailed": "连接失败。",
         "manualImageRequired": "需要确认模型是否支持图片输入。",
         "deleteDialog": {
+          "replacementLabel": "替代的默认模型",
+          "chooseReplacement": "请选择模型",
+          "noReplacement": "请先添加另一个配置完整的模型，再移除当前默认模型。",
+          "replaceDefault": "保存为默认模型",
+          "replaceFailed": "修改默认模型失败。",
+          "replacementUnavailable": "所选替代模型已不可用。",
           "modelTitle": "删除“{{name}}”模型？",
           "modelBlockedTitle": "无法删除“{{name}}”模型",
           "providerTitle": "移除模型提供商“{{name}}”？",
@@ -1165,6 +1171,8 @@
         }
       },
       "cron": {
+        "disabledStatus": "定时任务调度已禁用",
+        "enableAction": "启用调度",
         "title": "Cron",
         "description": "配置 Cron 任务使用的后台调度器。任务创建和管理在 Cron 模块中完成。",
         "configAria": "定时任务运行设置",

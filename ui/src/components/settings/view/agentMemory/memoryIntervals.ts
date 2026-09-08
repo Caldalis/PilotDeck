@@ -4,7 +4,7 @@ export const DEFAULT_INDEX_MINUTES = 30;
 export const DEFAULT_DREAM_MINUTES = 60;
 
 export const INDEX_INTERVAL_UNITS: IntervalUnit[] = ["minutes", "hours", "days"];
-export const DREAM_INTERVAL_UNITS: IntervalUnit[] = ["hours", "days", "weeks"];
+export const DREAM_INTERVAL_UNITS: IntervalUnit[] = ["minutes", "hours", "days", "weeks"];
 
 const MINUTES_PER_UNIT: Record<IntervalUnit, number> = {
   minutes: 1,

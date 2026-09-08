@@ -1053,6 +1053,12 @@
         "testFailed": "Connection failed.",
         "manualImageRequired": "Confirm whether the models support image input.",
         "deleteDialog": {
+          "replacementLabel": "Replacement default model",
+          "chooseReplacement": "Choose a model",
+          "noReplacement": "Add another configured model before removing this default model.",
+          "replaceDefault": "Save as default model",
+          "replaceFailed": "Failed to change the default model.",
+          "replacementUnavailable": "The replacement model is no longer available.",
           "modelTitle": "Delete “{{name}}” model?",
           "modelBlockedTitle": "Unable to delete “{{name}}” model",
           "providerTitle": "Remove model provider “{{name}}”?",
@@ -1165,6 +1171,8 @@
         }
       },
       "cron": {
+        "disabledStatus": "Task scheduling is disabled",
+        "enableAction": "Enable scheduling",
         "title": "Cron",
         "description": "Configure the background scheduler used by Cron jobs. Create and manage jobs from the Cron module.",
         "configAria": "Scheduled task runtime settings",

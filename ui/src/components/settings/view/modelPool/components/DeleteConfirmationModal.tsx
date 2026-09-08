@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PendingIcon, XIcon } from "./icons";
 
@@ -20,6 +21,8 @@ type DeleteConfirmationModalProps = {
   error: string;
   onCancel: () => void;
   onConfirm: () => void;
+  replacementOptions?: string[];
+  onReplaceDefault?: (modelRef: string) => Promise<void>;
 };
 
 function routeName(value: string): string {
@@ -54,10 +57,23 @@ export default function DeleteConfirmationModal({
   error,
   onCancel,
   onConfirm,
+  replacementOptions = [],
+  onReplaceDefault,
 }: DeleteConfirmationModalProps) {
   const { t } = useTranslation("settings");
+  const [replacement, setReplacement] = useState("");
+  const [replacing, setReplacing] = useState(false);
+  const [replacementError, setReplacementError] = useState("");
+  const replaceDefault = async () => {
+    if (!onReplaceDefault || replacing || !replacementOptions.includes(replacement)) return;
+    setReplacing(true);
+    setReplacementError("");
+    try { await onReplaceDefault(replacement); }
+    catch (caught) { setReplacementError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setReplacing(false); }
+  };
   const inUse = usages.length > 0;
-  const blocked = loading || Boolean(error) || inUse;
+  const blocked = loading || replacing || Boolean(error) || inUse;
   const title = inUse
     ? kind === "model"
       ? t("pilotDeckConfig.panels.models.deleteDialog.modelBlockedTitle", { name })
@@ -68,7 +84,7 @@ export default function DeleteConfirmationModal({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
+      if (!replacing && event.target === event.currentTarget) onCancel();
     }}>
       <section
         className={`modal ${kind}-delete-modal`}
@@ -78,7 +94,7 @@ export default function DeleteConfirmationModal({
       >
         <header className="modal-header">
           <h2 id="delete-modal-title">{title}</h2>
-          <button className="icon-button" type="button" aria-label={t("pilotDeckConfig.panels.models.close")} onClick={onCancel}>
+          <button className="icon-button" type="button" aria-label={t("pilotDeckConfig.panels.models.close")} disabled={replacing} onClick={onCancel}>
             <XIcon size={18} />
           </button>
         </header>
@@ -116,10 +132,27 @@ export default function DeleteConfirmationModal({
               {t(`pilotDeckConfig.panels.models.deleteDialog.${kind}Confirm`, { name })}
             </p>
           )}
+          {!loading && !error && usages.some(item => item.reference.path === "agent.model") && onReplaceDefault && (
+            <div className="model-default-replacement">
+              <label className="field">
+                <span>{t("pilotDeckConfig.panels.models.deleteDialog.replacementLabel")}</span>
+                <select value={replacement} disabled={replacing} onChange={event => setReplacement(event.target.value)}>
+                  <option value="">{t("pilotDeckConfig.panels.models.deleteDialog.chooseReplacement")}</option>
+                  {replacementOptions.map(ref => <option key={ref} value={ref}>{ref}</option>)}
+                </select>
+              </label>
+              {replacementOptions.length === 0 && <p>{t("pilotDeckConfig.panels.models.deleteDialog.noReplacement")}</p>}
+              <button className="button secondary compact" type="button"
+                disabled={replacing || !replacementOptions.includes(replacement)} onClick={() => void replaceDefault()}>
+                {t("pilotDeckConfig.panels.models.deleteDialog.replaceDefault")}
+              </button>
+            </div>
+          )}
+          {replacementError && <p role="alert">{replacementError}</p>}
         </div>
 
         <footer className="modal-actions">
-          <button className="button secondary" type="button" onClick={onCancel}>
+          <button className="button secondary" type="button" disabled={replacing} onClick={onCancel}>
             {t("settingsPage.actions.cancel")}
           </button>
           <button className="button danger" type="button" disabled={blocked} onClick={onConfirm}>

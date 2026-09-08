@@ -311,6 +311,9 @@ export default function McpServersSection({
         ),
       );
     }
+    if (!backup && editingIds[scope]) {
+      removeServer(scope, editingIds[scope]);
+    }
     setEditingIds((current) => ({ ...current, [scope]: null }));
     setEditBackups((current) => ({ ...current, [scope]: null }));
   };

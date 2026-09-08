@@ -11,6 +11,7 @@ type CronSectionProps = {
 type EditingField = "timezone" | "maxConcurrentRuns";
 
 const TIMEZONES = [
+  "UTC",
   "Asia/Shanghai",
   "Asia/Hong_Kong",
   "Asia/Tokyo",
@@ -81,8 +82,8 @@ function SaveIcon() {
 export default function CronSection({ config, onChange }: CronSectionProps) {
   const { t } = useTranslation("settings");
   const cron = config.cron ?? {};
-  const timezone = cron.timezone ?? "Asia/Shanghai";
-  const maxConcurrentRuns = cron.maxConcurrentRuns ?? 2;
+  const timezone = cron.timezone ?? "UTC";
+  const maxConcurrentRuns = cron.maxConcurrentRuns ?? 1;
   const [editingField, setEditingField] = useState<EditingField | null>(null);
   const [timezoneDraft, setTimezoneDraft] = useState(timezone);
   const [concurrencyDraft, setConcurrencyDraft] = useState(
@@ -173,6 +174,19 @@ export default function CronSection({ config, onChange }: CronSectionProps) {
       className="scheduled-card"
       aria-label={t("pilotDeckConfig.panels.cron.configAria")}
     >
+      {cron.enabled === false && (
+        <div className="scheduled-setting-row" role="status">
+          <div className="scheduled-setting-copy">
+            <strong>{t("pilotDeckConfig.panels.cron.disabledStatus")}</strong>
+          </div>
+          <div className="scheduled-control-area">
+            <button className="button secondary compact" type="button"
+              onClick={() => onChange(patch(config, ["cron", "enabled"], true))}>
+              {t("pilotDeckConfig.panels.cron.enableAction")}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="scheduled-setting-row">
         <div className="scheduled-setting-copy">
           <label htmlFor="scheduled-timezone">

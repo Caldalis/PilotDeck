@@ -60,6 +60,8 @@ type ProviderCardProps = {
   onPendingChange?: (pending: boolean) => void;
   catalogEntry?: CatalogProvider;
   initialEditing?: boolean;
+  defaultModelOptions?: string[];
+  onReplaceDefaultModel?: (modelRef: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 type DeleteDialogState = {
@@ -106,6 +108,8 @@ export default function ProviderCard({
   onPendingChange,
   catalogEntry,
   initialEditing = false,
+  defaultModelOptions = [],
+  onReplaceDefaultModel,
 }: ProviderCardProps) {
   const { t } = useTranslation("settings");
   const [draftProvider, setDraftProvider] = useState<V2Provider>(provider);
@@ -360,7 +364,11 @@ export default function ProviderCard({
   };
 
   const providerRequiresApiKey = providerRequiresApiKeyInForm;
-  const modelListUrl = effectiveCatalogEntry?.modelListUrl ?? effectiveUrl;
+  const usesOfficialEndpoint = effectiveCatalogEntry
+    && effectiveUrl.replace(/\/+$/, "") === effectiveCatalogEntry.defaultUrl.replace(/\/+$/, "");
+  const modelListUrl = usesOfficialEndpoint
+    ? effectiveCatalogEntry.modelListUrl ?? effectiveUrl
+    : effectiveUrl;
   const hasCompleteModelListUrl = (() => {
     try {
       const url = new URL(modelListUrl);
@@ -738,6 +746,15 @@ export default function ProviderCard({
           usages={deleteDialog.usages}
           loading={deleteDialog.loading}
           error={deleteDialog.error}
+          replacementOptions={defaultModelOptions.filter(ref => deleteDialog.kind === "provider"
+            ? !ref.startsWith(`${providerId}/`)
+            : ref !== `${providerId}/${deleteDialog.modelId}`)}
+          onReplaceDefault={onReplaceDefaultModel ? async (modelRef) => {
+            const target = deleteDialog;
+            const result = await onReplaceDefaultModel(modelRef);
+            if (!result.ok) throw new Error(result.error || t("pilotDeckConfig.panels.models.deleteDialog.replaceFailed"));
+            await openDeleteDialog(target.kind, target.modelId);
+          } : undefined}
           onCancel={() => setDeleteDialog(null)}
           onConfirm={confirmDelete}
         />

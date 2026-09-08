@@ -77,7 +77,7 @@ function SettingsInner({
   }, [checkVersion]);
 
   useEffect(() => {
-    setMobileNavigationOpen(selectedKey === "general");
+    if (selectedKey !== "general") setMobileNavigationOpen(false);
   }, [selectedKey]);
 
   const selectMenuItem = useCallback(

@@ -17,7 +17,7 @@ describe("memory interval helpers", () => {
     });
     expect(toDisplayUnit(0, DEFAULT_DREAM_MINUTES, DREAM_INTERVAL_UNITS)).toEqual({
       value: 0,
-      unit: "hours",
+      unit: "minutes",
     });
     expect(toMinutes(0, "minutes")).toBe(0);
     expect(toMinutes(0, "hours")).toBe(0);

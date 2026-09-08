@@ -295,7 +295,7 @@ export default function ToolsSection({ config, onChange }: ToolsSectionProps) {
         ? {
             customProvider: {
               ...ws.customProvider,
-              auth: "bearer",
+              auth: ws.customProvider?.auth ?? "bearer",
               method: ws.customProvider?.method ?? "POST",
             },
           }
@@ -314,7 +314,7 @@ export default function ToolsSection({ config, onChange }: ToolsSectionProps) {
       endpoint: value,
       customProvider: {
         ...ws.customProvider,
-        auth: "bearer",
+        auth: ws.customProvider?.auth ?? "bearer",
         method: ws.customProvider?.method ?? "POST",
       },
     });
@@ -377,7 +377,7 @@ export default function ToolsSection({ config, onChange }: ToolsSectionProps) {
               provider === "custom"
                 ? {
                     ...ws.customProvider,
-                    auth: "bearer",
+                    auth: ws.customProvider?.auth ?? "bearer",
                     method: ws.customProvider?.method ?? "POST",
                   }
                 : undefined,

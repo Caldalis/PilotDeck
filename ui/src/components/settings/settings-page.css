@@ -1628,6 +1628,16 @@
   line-height: 1.6;
 }
 
+:where(.pilotdeck-settings-app) .model-default-replacement {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+:where(.pilotdeck-settings-app) .model-default-replacement .button {
+  justify-self: start;
+}
+
 :where(.pilotdeck-settings-app) .model-usage-list {
   margin: 14px 0 0;
   padding: 0;
