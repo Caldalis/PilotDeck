@@ -1569,14 +1569,14 @@
 
 .pilotdeck-settings-app .model-delete-modal,
 .pilotdeck-settings-app .provider-delete-modal {
-  width: min(720px, 100%);
+  width: min(480px, 100%);
   max-height: calc(100vh - 44px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border: 1px solid #dedfeb;
-  border-radius: 18px;
-  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
   box-shadow: 0 24px 70px #25253a30;
   font-size: 14px;
 }
@@ -1705,6 +1705,107 @@
   background: #d9dae4;
   color: #fff;
   cursor: not-allowed;
+}
+
+/* Keep deletion dialogs compact without changing the other settings modals. */
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) {
+  --delete-copy: #666a79;
+  --delete-warning: #c74b60;
+  --delete-warning-bg: #fff0f2;
+  --delete-warning-border: #efc9cf;
+  max-height: calc(100dvh - 44px);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .modal-header {
+  min-height: 56px;
+  padding: 14px 20px;
+  flex-shrink: 0;
+  border-color: var(--line);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .modal-header h2 {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .icon-button {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .icon-button:hover {
+  background: var(--brand-tint);
+  color: var(--ink);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .modal-body {
+  min-height: 0;
+  padding: 16px 20px;
+  color: var(--delete-copy);
+  overflow-wrap: anywhere;
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) :is(.delete-confirm-copy, .delete-dialog-status, .field > span) {
+  color: var(--delete-copy);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .modal-actions {
+  min-height: 0;
+  padding: 12px 20px;
+  flex-shrink: 0;
+  gap: 8px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .modal-actions .button {
+  min-height: 34px;
+  min-width: 64px;
+  font-size: 13px;
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .model-usage-intro {
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 8px;
+  color: var(--delete-warning);
+  background: var(--delete-warning-bg);
+  border-color: var(--delete-warning-border);
+}
+
+.pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .model-usage-list li {
+  min-height: 42px;
+  padding: 10px 12px;
+  gap: 12px;
+  color: var(--delete-copy);
+  background: var(--brand-tint);
+  border-color: var(--line);
+}
+
+.pilotdeck-settings-app .provider-delete-modal .provider-usage-list li {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+}
+
+.dark .pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) {
+  --surface: #202028;
+  --delete-copy: #b6b6c4;
+  --delete-warning: #f0a0ad;
+  --delete-warning-bg: #34242c;
+  --delete-warning-border: #61404b;
+  box-shadow: 0 24px 70px #0006;
+}
+
+.dark .pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .provider-usage-model {
+  color: #aaa5ed;
+}
+
+.dark .pilotdeck-settings-app :is(.model-delete-modal, .provider-delete-modal) .button.danger:disabled {
+  color: #93939f;
+  background: #30303d;
+  border-color: var(--line-strong);
 }
 
 .pilotdeck-settings-app .provider-picker-backdrop {
