@@ -127,14 +127,19 @@ function sameKey(fingerprint, apiKey) {
   return fingerprint?.length === candidate.length && timingSafeEqual(fingerprint, candidate);
 }
 
+// Normalize only catalog lookup; never use this value as a configuration key.
+function presetIdFor(providerId) {
+  const lookupId = text(providerId).toLowerCase();
+  return Object.hasOwn(ALIASES, lookupId) ? ALIASES[lookupId] : lookupId;
+}
+
 export function connectionTestMatchesProvider(record, provider) {
-  const presetEndpoint = Object.hasOwn(PRESETS, provider?.providerId)
-    ? PRESETS[provider.providerId].endpoint
-    : '';
+  const presetId = presetIdFor(provider?.providerId);
+  const presetEndpoint = Object.hasOwn(PRESETS, presetId) ? PRESETS[presetId].endpoint : '';
   const endpoint = canonicalEndpoint(text(provider?.url) || presetEndpoint);
   const testedEndpoint = canonicalEndpoint(record?.provider?.endpoint);
   if (!record || !provider || !endpoint || !testedEndpoint || record.provider.protocol !== provider.protocol || testedEndpoint !== endpoint) return false;
-  return provider.providerId === 'ollama' || sameKey(record.keyFingerprint, text(provider.apiKey));
+  return presetIdFor(provider.providerId) === 'ollama' || sameKey(record.keyFingerprint, text(provider.apiKey));
 }
 function hasOnlyKeys(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -164,10 +169,15 @@ function retryPolicy(value) {
   return output;
 }
 function resolveProvider(body, { allowPresetEndpointOverride = false } = {}) {
-  const requested = text(body.providerId).toLowerCase();
-  const providerId = Object.hasOwn(ALIASES, requested) ? ALIASES[requested] : requested;
-  if (Object.hasOwn(PRESETS, providerId)) {
-    const preset = PRESETS[providerId];
+  const providerId = text(body.providerId);
+  const presetId = presetIdFor(providerId);
+  if (Object.hasOwn(PRESETS, presetId)) {
+    const preset = { ...PRESETS[presetId] };
+    // Settings may use a custom protocol under any user-chosen provider ID.
+    if (allowPresetEndpointOverride && text(body.protocol)) {
+      preset.protocol = text(body.protocol).toLowerCase();
+      if (!PROTOCOLS.has(preset.protocol)) return null;
+    }
     const requestedEndpoint = allowPresetEndpointOverride ? text(body.endpoint) : '';
     if (!requestedEndpoint) return { providerId, ...preset, custom: false };
     try {
@@ -264,7 +274,7 @@ export async function modelConnectionTestsHandler(req, res) {
   const models = [...new Set(requestedModels.filter(Boolean))];
   const retry = retryPolicy(req.body?.retryPolicy);
   const apiKey = text(req.body?.apiKey);
-  if (!hasOnlyKeys(req.body, ['providerId', 'protocol', 'endpoint', 'apiKey', 'models', 'retryPolicy']) || !provider || !models.length || models.length !== requestedModels.length || models.length > MAX_MODELS_PER_TEST || !retry || (provider.providerId !== 'ollama' && !apiKey)) {
+  if (!hasOnlyKeys(req.body, ['providerId', 'protocol', 'endpoint', 'apiKey', 'models', 'retryPolicy']) || !provider || !models.length || models.length !== requestedModels.length || models.length > MAX_MODELS_PER_TEST || !retry || (presetIdFor(provider.providerId) !== 'ollama' && !apiKey)) {
     return apiError(res, 400, 'INVALID_REQUEST', 'providerId, models, retryPolicy, and the required API key are invalid.');
   }
   const release = probeInFlight.tryAcquire(req.user.id);
@@ -401,7 +411,7 @@ router.put('/model-configuration', async (req, res) => {
       const existingProvider = recordConfig.config?.model?.providers?.[provider.providerId] || {};
       const suppliedKey = req.body?.apiKey;
       let apiKey;
-      if (provider.providerId === 'ollama') {
+      if (presetIdFor(provider.providerId) === 'ollama') {
         if (typeof suppliedKey === 'string' && suppliedKey.trim()) {
           return { error: ['INVALID_REQUEST', 'Ollama does not use an apiKey.'] };
         }
@@ -413,7 +423,7 @@ router.put('/model-configuration', async (req, res) => {
       } else {
         return { error: ['INVALID_REQUEST', 'apiKey is required for this provider.'] };
       }
-      if (provider.providerId !== 'ollama' && !sameKey(record.keyFingerprint, apiKey)) {
+      if (presetIdFor(provider.providerId) !== 'ollama' && !sameKey(record.keyFingerprint, apiKey)) {
         return { error: ['CONFIGURATION_MISMATCH', 'apiKey does not match the credential used for testing.'] };
       }
       const configurationId = `cfg_${randomUUID()}`;
@@ -435,7 +445,7 @@ router.put('/model-configuration', async (req, res) => {
         retry: { ...(existingProvider.retry && typeof existingProvider.retry === 'object' ? existingProvider.retry : {}), requestMaxRetries: retry.maxRetries, streamMaxRetries: retry.maxStreamRetries, streamIdleTimeoutMs: retry.streamIdleTimeoutMs, baseDelayMs: retry.baseDelayMs, maxDelayMs: retry.maxDelayMs },
         models: { ...existingModels, ...modelsConfig },
       };
-      if (provider.providerId === 'ollama') delete savedProvider.apiKey;
+      if (presetIdFor(provider.providerId) === 'ollama') delete savedProvider.apiKey;
       else savedProvider.apiKey = apiKey;
       const nextConfig = {
         ...recordConfig.config,

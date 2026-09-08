@@ -23,6 +23,17 @@ afterEach(() => {
 });
 
 describe("model provider drafts", () => {
+  it("displays custom provider names with their exact case and separators", () => {
+    const provider = { protocol: "openai" as const, url: "https://example.test/v1", apiKey: "********", models: { model: {} } };
+    const config = { model: { providers: { HXAPI: provider, hxapi: provider, my_API: provider } } } as PilotDeckConfig;
+    render(<ModelsSection config={config} onChange={vi.fn()} />);
+    expect(screen.getAllByText("HXAPI").length).toBeGreaterThan(0);
+    expect(screen.getByText("hxapi")).toBeTruthy();
+    expect(screen.getByText("my_API")).toBeTruthy();
+    expect(screen.queryByText("Hxapi")).toBeNull();
+    expect(screen.queryByText("My API")).toBeNull();
+  });
+
   it("keeps a new custom provider local until it is explicitly saved", () => {
     const onChange = vi.fn();
     const config = { model: { providers: {} } } as PilotDeckConfig;
@@ -172,7 +183,7 @@ const passingTest = {
 };
 
 describe("model provider connection status", () => {
-  it("shows pending status until every enabled model passes", () => {
+  it("shows pending only for missing fields", () => {
     const { rerender } = render(
       <ModelsSection
         config={{
@@ -180,7 +191,7 @@ describe("model provider connection status", () => {
             providers: {
               openrouter: {
                 apiKey: "sk-test",
-                models: { "model-a": {} },
+                models: {},
               },
             },
           },

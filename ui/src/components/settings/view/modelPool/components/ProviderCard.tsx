@@ -21,7 +21,7 @@ import type { V2Provider } from "../types";
 import { isMaskedSecret, providerDisplayName } from "../utils/providerRefs";
 import {
   clearProviderConnectionTests,
-  isProviderConnected,
+  isProviderConfigured,
   isProviderPending,
 } from "../utils/providerStatus";
 import ImageCapabilityModal from "../../../../onboarding/view/subcomponents/ImageCapabilityModal";
@@ -61,7 +61,7 @@ type ProviderCardProps = {
   initialEditing?: boolean;
 };
 
-type TestStatus = "idle" | "testing" | "manual" | "success" | "error";
+type TestStatus = "idle" | "testing" | "manual" | "success" | "error" | "savingTest" | "saveError";
 
 type ConnectionTestModel = {
   modelId: string;
@@ -185,6 +185,7 @@ export default function ProviderCard({
   const [apiModelsError, setApiModelsError] = useState("");
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
+  const [pendingTestSave, setPendingTestSave] = useState<{ data: ConnectionTestResponse; provider: V2Provider } | null>(null);
   const [connectionTestId, setConnectionTestId] = useState("");
   const [manualModelIds, setManualModelIds] = useState<string[]>([]);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
@@ -193,7 +194,7 @@ export default function ProviderCard({
     effectiveCatalogEntry,
     t("pilotDeckConfig.panels.models.customProvider"),
   );
-  const connected = isProviderConnected(draftProvider);
+  const configured = isProviderConfigured(draftProvider, effectiveCatalogEntry);
   const fieldsDisabled = !editing || saving;
   const onPendingChangeRef = useRef(onPendingChange);
   onPendingChangeRef.current = onPendingChange;
@@ -206,8 +207,8 @@ export default function ProviderCard({
   }, [editing, provider, providerId]);
 
   useEffect(() => {
-    onPendingChangeRef.current?.(isProviderPending(draftProvider));
-  }, [draftProvider]);
+    onPendingChangeRef.current?.(isProviderPending(draftProvider, effectiveCatalogEntry));
+  }, [draftProvider, effectiveCatalogEntry]);
 
   const update = (patchValue: Partial<V2Provider>) => {
     setProviderIdError("");
@@ -449,6 +450,7 @@ export default function ProviderCard({
     setTestStatus("idle");
     setTestMessage("");
     setConnectionTestId("");
+    setPendingTestSave(null);
     setManualModelIds([]);
     setEditing(true);
     void refreshModels();
@@ -458,13 +460,21 @@ export default function ProviderCard({
     data: ConnectionTestResponse,
     previousProvider: V2Provider,
   ) => {
-    const testedProvider = applyPassingConnectionTests(previousProvider, data.models, data.testedAt);
-    setDraftProvider(testedProvider);
-    const result = data.testId && onBindConnectionTest
-      ? await onBindConnectionTest(data.testId)
-      : await onSave(providerId, testedProvider);
-    if (!result.ok) {
-      setDraftProvider(previousProvider);
+    setTestStatus("savingTest");
+    setPendingTestSave({ data, provider: previousProvider });
+    try {
+      const testedProvider = applyPassingConnectionTests(previousProvider, data.models, data.testedAt);
+      const result = data.testId && onBindConnectionTest
+        ? await onBindConnectionTest(data.testId)
+        : await onSave(providerId, testedProvider);
+      if (!result.ok) throw new Error(result.error || t("pilotDeckConfig.panels.models.testSaveFailed"));
+      setDraftProvider(testedProvider);
+      setPendingTestSave(null);
+      setTestStatus("success");
+      setTestMessage(t("pilotDeckConfig.panels.models.testSuccess"));
+    } catch (error) {
+      setTestStatus("saveError");
+      setTestMessage(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -534,6 +544,7 @@ export default function ProviderCard({
     setTestStatus("testing");
     setTestMessage("");
     setConnectionTestId("");
+    setPendingTestSave(null);
     setManualModelIds([]);
     try {
       const res = await authenticatedFetch("/api/config/test-connections", {
@@ -552,8 +563,6 @@ export default function ProviderCard({
         : await res.json() as ConnectionTestResponse;
       if (!res.ok) {
         if (res.status === 404 && data.status === "passed") {
-          setTestStatus("success");
-          setTestMessage(t("pilotDeckConfig.panels.models.testSuccess"));
           await persistPassingTest(data, draftProvider);
           return;
         }
@@ -575,8 +584,6 @@ export default function ProviderCard({
         setTestMessage(testErrorMessage(data));
         return;
       }
-      setTestStatus("success");
-      setTestMessage(t("pilotDeckConfig.panels.models.testSuccess"));
       await persistPassingTest(data, draftProvider);
     } catch (error) {
       setTestStatus("error");
@@ -609,8 +616,6 @@ export default function ProviderCard({
         setTestMessage(testErrorMessage(data));
         return;
       }
-      setTestStatus("success");
-      setTestMessage(t("pilotDeckConfig.panels.models.testSuccess"));
       await persistPassingTest(data, draftProvider);
     } catch (error) {
       setTestStatus("error");
@@ -639,10 +644,10 @@ export default function ProviderCard({
           <div>
             <div className="detail-title-line">
               <h2>{displayName}</h2>
-              <span className={`status-badge${connected ? "" : " pending"}`}>
-                {connected ? <CheckCircleIcon size={14} /> : <PendingIcon size={14} />}
-                {connected
-                  ? t("pilotDeckConfig.panels.models.connected")
+              <span className={`status-badge${configured ? "" : " pending"}`}>
+                {configured ? <CheckCircleIcon size={14} /> : <PendingIcon size={14} />}
+                {configured
+                  ? t("pilotDeckConfig.panels.models.configured")
                   : t("pilotDeckConfig.panels.models.pending")}
               </span>
             </div>
@@ -901,20 +906,26 @@ export default function ProviderCard({
           <section className="detail-test-section" aria-label={t("pilotDeckConfig.panels.models.testConnection")}>
             <p className="test-cost-note">{t("pilotDeckConfig.panels.models.testCostNote")}</p>
             <div className="test-row">
-              {testStatus === "error" && testMessage ? (
+              {(testStatus === "error" || testStatus === "saveError") && testMessage ? (
                 <div className="test-failure-message">
                   <PendingIcon size={16} />
-                  <strong>{t("pilotDeckConfig.panels.models.testFailed")}</strong>
+                  <strong>{t(`pilotDeckConfig.panels.models.${testStatus === "saveError" ? "testSaveFailed" : "testFailed"}`)}</strong>
                   <span title={testMessage}>{testMessage}</span>
                 </div>
               ) : null}
               <button
                 className={cn("test-button", testStatus)}
                 type="button"
-                disabled={testStatus === "testing" || testStatus === "manual" || saving}
-                onClick={() => void testConnection()}
+                disabled={testStatus === "testing" || testStatus === "manual" || testStatus === "savingTest" || saving}
+                onClick={() => void (testStatus === "saveError" && pendingTestSave
+                  ? persistPassingTest(pendingTestSave.data, pendingTestSave.provider)
+                  : testConnection())}
               >
-                {testStatus === "testing"
+                {testStatus === "savingTest"
+                  ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.savingTest")}</>
+                  : testStatus === "saveError"
+                    ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retryTestSave")}</>
+                  : testStatus === "testing"
                   ? <><RefreshIcon className="spin" /> {t("pilotDeckConfig.panels.models.testing")}</>
                   : testStatus === "success"
                     ? <><CheckCircleIcon /> {t("pilotDeckConfig.panels.models.connectionNormal")}</>
@@ -922,6 +933,11 @@ export default function ProviderCard({
                       ? <><RefreshIcon /> {t("pilotDeckConfig.panels.models.retest")}</>
                       : <><PlugIcon /> {t("pilotDeckConfig.panels.models.testConnection")}</>}
               </button>
+              {testStatus === "saveError" ? (
+                <button className="test-button" type="button" onClick={() => void testConnection()}>
+                  {t("pilotDeckConfig.panels.models.retest")}
+                </button>
+              ) : null}
             </div>
           </section>
         )}

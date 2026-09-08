@@ -19,24 +19,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function modelHasPassingConnectionTest(model: unknown): boolean {
-  if (!isRecord(model)) return false;
-  const test = model.connectionTest;
-  if (!isRecord(test)) return false;
-  return test.status === "passed"
-    && test.textInput === "supported"
-    && (test.imageInput === "supported" || test.imageInput === "unsupported");
+/** Completeness is independent of the optional connection probe. */
+export function isProviderConfigured(provider: V2Provider, catalogEntry?: CatalogProvider): boolean {
+  return Boolean(
+    (provider.protocol || catalogEntry?.protocol)?.trim()
+    && (provider.url || catalogEntry?.defaultUrl)?.trim()
+    && (providerHasCredential(provider, catalogEntry) || catalogEntry?.apiKeyEnvVar)
+    && Object.keys(provider.models ?? {}).some((id) => id.trim()),
+  );
 }
 
-export function isProviderConnected(provider: V2Provider): boolean {
-  const models = provider.models ?? {};
-  const ids = Object.keys(models);
-  if (ids.length === 0) return false;
-  return ids.every((id) => modelHasPassingConnectionTest(models[id]));
-}
-
-export function isProviderPending(provider: V2Provider): boolean {
-  return !isProviderConnected(provider);
+export function isProviderPending(provider: V2Provider, catalogEntry?: CatalogProvider): boolean {
+  return !isProviderConfigured(provider, catalogEntry);
 }
 
 export function clearProviderConnectionTests(provider: V2Provider): V2Provider {

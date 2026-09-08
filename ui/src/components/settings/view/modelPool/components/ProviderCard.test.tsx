@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogProvider } from "../../../../../shared/catalogProviders";
 import ProviderCard from "./ProviderCard";
@@ -122,7 +122,7 @@ describe("ProviderCard connection badge", () => {
     vi.clearAllMocks();
   });
 
-  it("shows pending until every enabled model has a passing connection test", () => {
+  it("shows configured when fields are complete without requiring a test", () => {
     const onPendingChange = vi.fn();
     render(
       <ProviderCard
@@ -140,8 +140,8 @@ describe("ProviderCard connection badge", () => {
       />,
     );
 
-    expect(screen.getByText("pilotDeckConfig.panels.models.pending")).toBeTruthy();
-    expect(onPendingChange).toHaveBeenCalledWith(true);
+    expect(screen.getByText("pilotDeckConfig.panels.models.configured")).toBeTruthy();
+    expect(onPendingChange).toHaveBeenCalledWith(false);
   });
 
   it("shows connected when all enabled models passed, including manual image results", () => {
@@ -171,7 +171,7 @@ describe("ProviderCard connection badge", () => {
       />,
     );
 
-    expect(screen.getByText("pilotDeckConfig.panels.models.connected")).toBeTruthy();
+    expect(screen.getByText("pilotDeckConfig.panels.models.configured")).toBeTruthy();
     expect(onPendingChange).toHaveBeenCalledWith(false);
   });
 
@@ -216,8 +216,43 @@ describe("ProviderCard connection badge", () => {
     fireEvent.click(screen.getByRole("button", { name: "pilotDeckConfig.panels.models.testConnection" }));
 
     await waitFor(() => expect(onBindConnectionTest).toHaveBeenCalledWith("test_1"));
-    expect(screen.getByText("pilotDeckConfig.panels.models.connected")).toBeTruthy();
+    expect(screen.getByText("pilotDeckConfig.panels.models.configured")).toBeTruthy();
     expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it.each(['automatic', 'manual', 'legacy'])('reports a failed save after %s probing and retries saving without another probe', async (mode) => {
+    let finishSave!: (value: { ok: boolean; error?: string }) => void;
+    const save = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }))
+      .mockResolvedValue({ ok: true });
+    const passing = { status: 'passed', testId: 'test_case', models: [{ modelId: 'model-a', textInput: 'supported', imageInput: 'unsupported' }] };
+    mocks.authenticatedFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/image-capabilities')) return { ok: true, json: async () => passing };
+      if (url === '/api/config/test-connection') return { ok: true, json: async () => ({ ok: true, supportsImage: false }) };
+      if (mode === 'legacy') return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, json: async () => mode === 'manual'
+        ? { ...passing, manualInputRequired: true, models: [{ modelId: 'model-a', textInput: 'supported', imageInput: 'unknown' }] }
+        : passing };
+    });
+    render(<ProviderCard providerId="HXAPI" provider={{ protocol: 'openai', url: 'https://example.test', apiKey: '********', models: { 'model-a': {} } }}
+      onSave={save} onBindConnectionTest={save} onRemove={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.testConnection' }));
+    if (mode === 'manual') {
+      fireEvent.click(await screen.findByRole('radio', { name: 'connection.manualUnsupported' }));
+      fireEvent.click(screen.getByRole('button', { name: 'connection.manualConfirm' }));
+    }
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('pilotDeckConfig.panels.models.connectionNormal')).toBeNull();
+    expect((screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.savingTest' }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { finishSave({ ok: false, error: 'Configuration does not match the tested provider.' }); });
+    expect(screen.getByText('pilotDeckConfig.panels.models.testSaveFailed')).toBeTruthy();
+    expect(screen.getByText('pilotDeckConfig.panels.models.configured')).toBeTruthy();
+    expect(screen.queryByText('pilotDeckConfig.panels.models.connectionNormal')).toBeNull();
+    const probeCalls = mocks.authenticatedFetch.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.retryTestSave' }));
+    await waitFor(() => expect(screen.getByText('pilotDeckConfig.panels.models.connectionNormal')).toBeTruthy());
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(mocks.authenticatedFetch).toHaveBeenCalledTimes(probeCalls);
+    expect(screen.queryByText('pilotDeckConfig.panels.models.testSaveFailed')).toBeNull();
   });
 
   it("falls back to the legacy connection endpoint when the batch route is unavailable", async () => {

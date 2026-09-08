@@ -78,19 +78,32 @@ describe('onboarding routes', () => {
     expect(completed).toMatchObject({ status: 200, body: { status: 'passed', error: null, models: [{ modelId: 'model-a', imageInput: 'supported' }] } });
   });
 
-  it('matches equivalent provider endpoints after URL canonicalization', async () => {
+  it.each(['ollama', 'Ollama'])('matches equivalent endpoints for %s without rewriting its ID', async (providerId) => {
     const onboarding = await import('./onboarding.js');
     const record = {
-      provider: { providerId: 'ollama', protocol: 'openai', endpoint: 'http://localhost:11434/v1' },
+      provider: { providerId, protocol: 'openai', endpoint: 'http://localhost:11434/v1' },
       keyFingerprint: null,
     };
+    for (const url of ['', 'HTTP://LOCALHOST:11434/v1///']) {
+      expect(onboarding.connectionTestMatchesProvider(record, {
+        providerId, protocol: 'openai', url, apiKey: '',
+      })).toBe(true);
+    }
+  });
 
-    expect(onboarding.connectionTestMatchesProvider(record, {
-      providerId: 'ollama',
-      protocol: 'openai',
-      url: 'HTTP://LOCALHOST:11434/v1///',
-      apiKey: '',
-    })).toBe(true);
+  it('keeps a mixed-case keyless preset ID when probing and saving onboarding', async () => {
+    const writePilotDeckConfig = vi.fn(async (config) => ({ config }));
+    const { request } = await createOnboardingApp({ probe: vi.fn().mockResolvedValue({ ok: true }), writePilotDeckConfig });
+    const payload = { providerId: 'Ollama', apiKey: '', models: ['local'], retryPolicy: retryPolicy() };
+    const tested = await request('/api/v1/model-connection-tests', { method: 'POST', body: JSON.stringify(payload) });
+    expect(tested.body.status).toBe('passed');
+    const saved = await request('/api/v1/model-configuration', { method: 'PUT', body: JSON.stringify({
+      ...payload, testId: tested.body.testId, models: [{ modelId: 'local', textInput: true, imageInput: true }],
+    }) });
+    expect(saved.status).toBe(200);
+    expect(writePilotDeckConfig.mock.calls[0][0].agent.model).toBe('Ollama/local');
+    expect(Object.keys(writePilotDeckConfig.mock.calls[0][0].model.providers)).toContain('Ollama');
+    expect(writePilotDeckConfig.mock.calls[0][0].model.providers).not.toHaveProperty('ollama');
   });
 
   it('isolates test IDs by user and writes the tested model configuration', async () => {

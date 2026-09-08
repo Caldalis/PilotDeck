@@ -593,6 +593,37 @@ describe('config model-list route', () => {
 });
 
 describe('config model-pool connection test routes', () => {
+  it.each(['HXAPI', 'Gemini', 'OpenAI'])('preserves %s through masked-key testing, real disk save and reload', async (id) => {
+    const probe = vi.fn().mockResolvedValue({ ok: true });
+    const lower = id.toLowerCase();
+    const initial = {
+      schemaVersion: 1, agent: { model: `${id}/model-a` },
+      model: { providers: {
+        [id]: { protocol: 'openai', url: 'https://custom.example/v1', apiKey: 'private-test-key', models: { 'model-a': {} } },
+        [lower]: { protocol: 'openai', url: 'https://other.example/v1', apiKey: 'other-key', models: { 'model-a': {} } },
+      } },
+    };
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial), { probe });
+    const tested = await request('/api/config/test-connections', { method: 'POST', body: JSON.stringify({
+      providerId: id, protocol: 'openai', endpoint: 'https://custom.example/v1', apiKey: '********', models: ['model-a'], retryPolicy: {},
+    }) });
+    expect(tested.status).toBe(200);
+    expect(tested.body.status).toBe('passed');
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({ protocol: 'openai', apiKey: 'private-test-key' }));
+    const loaded = await request('/api/config');
+    const saved = await request('/api/config', { method: 'PUT', body: JSON.stringify({
+      raw: loaded.body.raw, baseRevision: loaded.body.revision, modelTestBindings: [{ testId: tested.body.testId }],
+    }) });
+    expect(saved.status).toBe(200);
+    const disk = parseYaml(readFileSync(configPath, 'utf8'));
+    expect(disk.model.providers[id].models['model-a'].connectionTest.status).toBe('passed');
+    expect(disk.model.providers[id].apiKey).toBe('private-test-key');
+    expect(disk.model.providers[lower]).toEqual(initial.model.providers[lower]);
+    expect(disk.agent.model).toBe(`${id}/model-a`);
+    const reloaded = await request('/api/config');
+    expect(reloaded.body.config.model.providers[id].models['model-a'].connectionTest.status).toBe('passed');
+  });
+
   it('uses a custom endpoint for catalog providers', async () => {
     const probe = vi.fn().mockResolvedValue({ ok: true });
     const { requestStatus } = await createConfigApp({ probe });
@@ -961,7 +992,7 @@ describe('config model-pool connection test routes', () => {
     expect(writePilotDeckConfig.mock.calls[0][0].model.providers.openai.models['model-b'].connectionTest).toMatchObject({ status: 'passed' });
   });
 
-  it('rejects a newly referenced model without a passing test binding', async () => {
+  it('accepts a newly referenced model without a connection test', async () => {
     const initial = {
       agent: { model: 'openai/model-a' },
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {} } } } },
@@ -976,11 +1007,10 @@ describe('config model-pool connection test routes', () => {
       method: 'PUT', headers: { 'x-user': 'settings-user' },
       body: JSON.stringify({ config: next }),
     });
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('MODEL_TEST_REQUIRED');
+    expect(response.status).toBe(200);
   });
 
-  it('requires a test when an existing unreferenced model becomes the agent model', async () => {
+  it('allows an existing untested model to become the agent model', async () => {
     const initial = stringifyYaml({
       agent: { model: 'openai/model-a' },
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {} } } } },
@@ -998,8 +1028,7 @@ describe('config model-pool connection test routes', () => {
       model: { providers: { openai: { protocol: 'openai', url: 'https://api.openai.com/v1', apiKey: 'key', models: { 'model-a': {}, 'model-b': {} } } } },
     });
     const second = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: referenced }) });
-    expect(second.status).toBe(409);
-    expect(second.body.code).toBe('MODEL_TEST_REQUIRED');
+    expect(second.status).toBe(200);
   });
 
   it('returns a user-facing error string for invalid test bindings', async () => {
@@ -1999,9 +2028,11 @@ async function createDiskConfigApp(initialRaw, overrides = {}) {
     getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
   }));
 
+  if (overrides.probe) vi.doMock('../services/modelConnectionProbe.js', () => ({ probeModelConnection: overrides.probe }));
   const { default: configRoutes } = await import('./config.js');
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => { req.user = { id: 'disk-test-user' }; next(); });
   app.use('/api/config', configRoutes);
 
   return {

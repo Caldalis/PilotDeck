@@ -236,7 +236,7 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
             const catalog = findCatalogProviderById(id);
             const pending = id === selectedId && selectedPending !== null
               ? selectedPending
-              : isDraft || isProviderPending(provider);
+              : isDraft || isProviderPending(provider, catalog);
             const name = providerDisplayName(
               id,
               catalog,

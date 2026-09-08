@@ -35,9 +35,22 @@ home's `permissions.json`:
 - Two pre-existing type errors in the redesign were corrected without changing the
   resident-task or model-deletion interactions.
 
+## Model pool behavior
+
+- Provider badges describe configuration completeness: **Configured** when required
+  connection fields and models are present, **Pending** when they are missing.
+  Connection testing is optional, including when selecting the primary model.
+- Provider IDs retain their exact spelling through credential lookup, connection
+  tests, saves and model references. Catalog aliases only choose default settings;
+  they never rename the stored provider. Custom display names also retain their case. `HXAPI` and `hxapi` remain separate keys.
+- A successful probe is shown as healthy only after its result is saved. Save
+  failures offer a retry using the same test record, without another model probe,
+  or a fresh test if the record has expired. Credential and endpoint matching,
+  record ownership/expiry checks and model-reference validation remain enforced.
+
 ## Validation
 
-- Web Regression's local suite: **164 files, 1,340 tests passed** with the same
+- Web Regression's local suite: **167 files, 1,359 tests passed** with the same
   existing CI exclusions for Playwright E2E, streamSmoother and desktop network tests.
 - Desktop packaging helper tests: **41 passed**; desktop updater network tests passed.
 - Permission settings and router parsing tests: **8 passed**.
@@ -48,6 +61,11 @@ home's `permissions.json`:
   rules; retry changes saved through the config API without changing another
   provider. Dark/390px mobile layouts and returning to chat were checked. A probe
   outside settings retained identical computed styles with/without settings CSS.
+
+- Model-pool regression in Chromium against a local mock model endpoint: complete
+  untested providers display as configured; masked-key tests save and survive a
+  reload without changing either case-sensitive provider key; a failed result save
+  retries without another model request; an untested primary model saves directly.
 
 These checks do not perform a signed macOS or Windows cross-version installer
 upgrade. The integration preserves main's updater rather than changing packaging.
