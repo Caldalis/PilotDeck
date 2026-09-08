@@ -295,21 +295,28 @@ export default function SidebarV2({
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarRootRef = useRef<HTMLElement | null>(null);
 
-  const [conversationsExpanded, setConversationsExpanded] = useState(false);
+  const [conversationsExpanded, setConversationsExpanded] = useState(true);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const projectsConversationsSplitRef = useRef<HTMLDivElement | null>(null);
   const SIDEBAR_SPLITTER_HEIGHT = 1;
   const SIDEBAR_SECTION_MIN_HEIGHT = 120;
-  const SIDEBAR_SPLIT_STORAGE_KEY = 'sidebar-v2-projects-conversations-split';
-  const [projectsSplitRatio, setProjectsSplitRatio] = useState(() => {
-    if (typeof window === 'undefined') return 0.5;
+  // Header + padding + three 35px conversation rows and two 2px gaps.
+  const DEFAULT_CONVERSATIONS_HEIGHT = 34 + 12 + 3 * 35 + 2 * 2;
+  const SIDEBAR_SPLIT_STORAGE_KEY = 'sidebar-v2-projects-conversations-split-v2';
+  const [savedProjectsSplitRatio, setProjectsSplitRatio] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
     try {
-      const stored = Number(window.localStorage.getItem(SIDEBAR_SPLIT_STORAGE_KEY));
-      return Number.isFinite(stored) && stored > 0.15 && stored < 0.85 ? stored : 0.5;
+      const current = window.localStorage.getItem(SIDEBAR_SPLIT_STORAGE_KEY);
+      const legacy = Number(window.localStorage.getItem('sidebar-v2-projects-conversations-split'));
+      // The old default wrote 0.5 even without a drag. Preserve other saved sizes.
+      const stored = current !== null ? Number(current) : legacy === 0.5 ? NaN : legacy;
+      return Number.isFinite(stored) && stored > 0 && stored < 1 ? stored : null;
     } catch {
-      return 0.5;
+      return null;
     }
   });
+  const [defaultProjectsSplitRatio, setDefaultProjectsSplitRatio] = useState(0.75);
+  const projectsSplitRatio = savedProjectsSplitRatio ?? defaultProjectsSplitRatio;
   const [projectsSplitResizing, setProjectsSplitResizing] = useState(false);
 
   // Resizable sidebar width — clamped to a sensible range and persisted across
@@ -329,6 +336,20 @@ export default function SidebarV2({
   });
   const [isResizing, setIsResizing] = useState(false);
   const isCompact = !isMobile && sidebarWidth <= SIDEBAR_COMPACT_THRESHOLD;
+  useEffect(() => {
+    const panel = projectsConversationsSplitRef.current;
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+    const update = () => {
+      const available = Math.max(1, panel.getBoundingClientRect().height - SIDEBAR_SPLITTER_HEIGHT);
+      const minRatio = Math.min(0.5, SIDEBAR_SECTION_MIN_HEIGHT / available);
+      setDefaultProjectsSplitRatio(Math.max(minRatio, Math.min(1 - minRatio,
+        1 - DEFAULT_CONVERSATIONS_HEIGHT / available)));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [isMobile, sidebarWidth]);
 
   useEffect(() => {
     if (isMobile) return;
@@ -354,12 +375,13 @@ export default function SidebarV2({
   }, []);
 
   useEffect(() => {
+    if (savedProjectsSplitRatio === null) return;
     try {
-      window.localStorage.setItem(SIDEBAR_SPLIT_STORAGE_KEY, String(projectsSplitRatio));
+      window.localStorage.setItem(SIDEBAR_SPLIT_STORAGE_KEY, String(savedProjectsSplitRatio));
     } catch {
       // Split remains usable when persistent storage is unavailable.
     }
-  }, [projectsSplitRatio]);
+  }, [savedProjectsSplitRatio]);
 
   useEffect(() => {
     if (!projectsSplitResizing) return undefined;
@@ -1279,10 +1301,10 @@ export default function SidebarV2({
             onKeyDown={(event) => {
               if (event.key === 'ArrowUp') {
                 event.preventDefault();
-                setProjectsSplitRatio((ratio) => clampProjectsSplitRatio(ratio - 0.05));
+                setProjectsSplitRatio(clampProjectsSplitRatio(projectsSplitRatio - 0.05));
               } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                setProjectsSplitRatio((ratio) => clampProjectsSplitRatio(ratio + 0.05));
+                setProjectsSplitRatio(clampProjectsSplitRatio(projectsSplitRatio + 0.05));
               } else if (event.key === 'Home') {
                 event.preventDefault();
                 setProjectsSplitRatio(clampProjectsSplitRatio(0));
