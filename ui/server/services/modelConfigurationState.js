@@ -92,6 +92,19 @@ export function evaluateModelConfigurationState(record, options = {}) {
   }
 
   if (!modelRef) {
+    // An explicitly saved empty pool is usable for history/settings. Missing
+    // files and bootstrap placeholders still take the first-run path above.
+    const raw = record.rawYaml ?? config;
+    const providers = raw?.model?.providers;
+    if (Object.hasOwn(raw?.agent ?? {}, 'model') && providers && typeof providers === 'object'
+      && !Array.isArray(providers) && Object.values(providers).every(provider =>
+        provider?.models && typeof provider.models === 'object' && !Array.isArray(provider.models)
+        && Object.keys(provider.models).length === 0)) {
+      const validation = validatePilotDeckConfig(config);
+      return validation.valid
+        ? { ...baseState(record), state: 'empty' }
+        : invalidConfiguration(record, validation.errors);
+    }
     return needsConfiguration(record, 'missing_model');
   }
 

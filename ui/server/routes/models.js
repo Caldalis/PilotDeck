@@ -1,10 +1,14 @@
 import express from 'express';
+import { getModelConfigurationState } from '../services/modelConfigurationState.js';
 import { getPilotDeckGateway } from '../pilotdeck-bridge.js';
 
 const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
+    if (getModelConfigurationState({ validateGateway: false }).state === 'empty') {
+      return res.json({ items: [], defaultSelection: null, router: { enabled: false, autoAvailable: false } });
+    }
     const gateway = await getPilotDeckGateway();
     if (!(await hasCapability(gateway, 'model_catalog_list'))) return unavailable(res, 'model_catalog_list');
     return res.json(await gateway.modelCatalogList({

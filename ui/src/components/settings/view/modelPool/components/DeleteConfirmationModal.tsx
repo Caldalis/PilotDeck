@@ -67,17 +67,18 @@ export default function DeleteConfirmationModal({
   const hasDefaultReference = usages.some(item => item.reference.path === "agent.model");
   const hasOtherReferences = usages.some(item => item.reference.path !== "agent.model");
   const canReplace = Boolean(onReplaceDefault && hasDefaultReference && !hasOtherReferences);
+  const clearsDefault = canReplace && replacementOptions.length === 0;
   const replaceDefault = async () => {
-    if (!onReplaceDefault || !canReplace || loading || error || replacing || !replacementOptions.includes(replacement)) return;
+    if (!onReplaceDefault || !canReplace || loading || error || replacing || (!clearsDefault && !replacementOptions.includes(replacement))) return;
     setReplacing(true);
     setReplacementError("");
-    try { await onReplaceDefault(replacement); }
+    try { await onReplaceDefault(clearsDefault ? "" : replacement); }
     catch (caught) { setReplacementError(caught instanceof Error ? caught.message : String(caught)); }
     finally { setReplacing(false); }
   };
   const inUse = usages.length > 0;
-  const blocked = loading || replacing || Boolean(error) || (inUse && !(canReplace && replacementOptions.includes(replacement)));
-  const title = inUse
+  const blocked = loading || replacing || Boolean(error) || (inUse && !(canReplace && (clearsDefault || replacementOptions.includes(replacement))));
+  const title = inUse && !clearsDefault
     ? kind === "model"
       ? t("pilotDeckConfig.panels.models.deleteDialog.modelBlockedTitle", { name })
       : t("pilotDeckConfig.panels.models.deleteDialog.providerTitle", { name })
@@ -110,7 +111,7 @@ export default function DeleteConfirmationModal({
               <PendingIcon size={22} />
               <p>{error}</p>
             </div>
-          ) : inUse ? (
+          ) : inUse && !clearsDefault ? (
             <div className={`model-usage-warning${kind === "provider" ? " provider-usage-warning" : ""}`}>
               <div className="model-usage-intro">
                 <PendingIcon size={22} />
@@ -135,7 +136,7 @@ export default function DeleteConfirmationModal({
               {t(`pilotDeckConfig.panels.models.deleteDialog.${kind}Confirm`, { name })}
             </p>
           )}
-          {!loading && !error && usages.some(item => item.reference.path === "agent.model") && onReplaceDefault && (
+          {!loading && !error && canReplace && !clearsDefault && (
             <div className="model-default-replacement">
               <label className="field">
                 <span>{t("pilotDeckConfig.panels.models.deleteDialog.replacementLabel")}</span>
@@ -155,7 +156,7 @@ export default function DeleteConfirmationModal({
             {t("settingsPage.actions.cancel")}
           </button>
           <button className="button danger" type="button" disabled={blocked} onClick={() => { if (canReplace) void replaceDefault(); else onConfirm(); }}>
-            {t(`pilotDeckConfig.panels.models.deleteDialog.${canReplace ? "replaceDefault" : "delete"}`)}
+            {t(`pilotDeckConfig.panels.models.deleteDialog.${canReplace && !clearsDefault ? "replaceDefault" : "delete"}`)}
           </button>
         </footer>
       </section>

@@ -26,7 +26,7 @@ type GatewayRuntimeState =
   | { state: "error"; error: string };
 
 type ModelConfigurationState = {
-  state: "needs_configuration" | "ready" | "invalid";
+  state: "needs_configuration" | "ready" | "empty" | "invalid";
   revision?: string;
 };
 

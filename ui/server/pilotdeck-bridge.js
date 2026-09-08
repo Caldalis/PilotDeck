@@ -58,6 +58,8 @@ import {
 // rewriting the offending @type annotation below to `ReturnType<typeof
 // createRemoteGateway>`, which is why this import can live on `src/` again.)
 import { createRemoteGateway } from '../../src/gateway/index.js';
+import { getModelConfigurationState } from './services/modelConfigurationState.js';
+import { createModelFreeHistory } from './services/modelFreeHistory.js';
 import {
     createVisibleErrorStatusDetail,
     isVisibleFailureStatusDetail,
@@ -280,6 +282,9 @@ export async function getPilotDeckGateway() {
  * @returns {Promise<T>}
  */
 export async function withPilotDeckGatewayReadRetry(operation) {
+    if (getModelConfigurationState({ validateGateway: false }).state === 'empty') {
+        return operation(createModelFreeHistory({ pilotHome: resolvePilotHome(process.env), projectRoot: REPO_ROOT }));
+    }
     let gateway = await ensureGateway();
     try {
         return await operation(gateway);

@@ -593,6 +593,24 @@ describe('config model-list route', () => {
 });
 
 describe('config model-pool connection test routes', () => {
+  it.each(['retain-provider', 'remove-provider', 'replace-default'])('persists an empty model pool: %s', async (mode) => {
+    const provider = { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: null } };
+    const initial = { schemaVersion: 1, agent: { model: 'openai/model' }, model: { providers: { openai: provider } } };
+    if (mode === 'replace-default') initial.model.providers.good = structuredClone(provider);
+    const { request, configPath } = await createDiskConfigApp(stringifyYaml(initial));
+    const next = structuredClone(initial);
+    next.agent.model = mode === 'replace-default' ? 'good/model' : '';
+    if (mode === 'remove-provider') delete next.model.providers.openai;
+    else next.model.providers.openai.models = {};
+    const saved = await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) });
+    expect(saved.status).toBe(200);
+    expect(parseYaml(readFileSync(configPath, 'utf8'))).toMatchObject(next);
+    // Empty providers keep their connection settings across unrelated saves.
+    next.tools = { webSearch: { enabled: false } };
+    expect((await request('/api/config', { method: 'PUT', body: JSON.stringify({ raw: stringifyYaml(next) }) })).status).toBe(200);
+    expect(parseYaml(readFileSync(configPath, 'utf8')).model.providers).toEqual(next.model.providers);
+  });
+
   it.each([false, true])('atomically recovers a broken default provider, preserving other references: %s', async (hasOtherReference) => {
     const provider = { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: { model: null } };
     const initial = { schemaVersion: 1, agent: { model: 'openai/model' }, model: { providers: { openai: { ...provider, url: 'aaa' }, good: provider } },

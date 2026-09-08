@@ -11,7 +11,7 @@ export function useChatModelSelection() {
     modelCatalog: state.catalog,
     isModelCatalogLoading: state.loading && state.catalog.length === 0,
     isModelSelectionReady: !state.loading && !error && Boolean(state.selection),
-    modelCatalogError: state.loading ? null : error,
+    modelCatalogError: state.loading || (!state.error && !state.selection && state.catalog.length === 0) ? null : error,
     setModelSelection: globalModelSelectionStore.select,
   };
 }

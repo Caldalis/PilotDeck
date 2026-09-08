@@ -212,10 +212,6 @@ export default function ProviderCard({
       setProviderIdError(t("pilotDeckConfig.panels.models.providerApiKeyRequired"));
       return;
     }
-    if (enabledModels.length === 0) {
-      setProviderIdError(t("pilotDeckConfig.panels.models.providerModelRequired"));
-      return;
-    }
     savingRef.current = true;
     setSaving(true);
     setProviderIdError("");

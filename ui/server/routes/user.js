@@ -124,7 +124,7 @@ router.get('/onboarding-status', authenticateToken, async (req, res) => {
       success: true,
       configuration,
       gateway: runtimeCoordination.getGatewayState(),
-      hasCompletedOnboarding: configuration.state === 'ready'
+      hasCompletedOnboarding: configuration.state === 'ready' || configuration.state === 'empty'
     });
   } catch (error) {
     console.error('Error checking onboarding status:', error);

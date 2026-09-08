@@ -44,6 +44,8 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <AuthLoadingScreen />;
   }
 
+  if (modelConfiguration.state === 'empty') return <>{children}</>;
+
   if (modelConfiguration.state === 'needs_configuration') {
     return <Onboarding onComplete={refreshOnboardingStatus} />;
   }

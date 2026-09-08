@@ -270,8 +270,8 @@ function validateProvider(id, provider, errors) {
   if (!allowsMissingApiKey(id) && !resolveConfiguredProviderApiKey(id, provider)) {
     errors.push(`model.providers.${id}.apiKey is required`);
   }
-  if (!isRecord(provider.models) || Object.keys(provider.models).length === 0) {
-    errors.push(`model.providers.${id}.models must contain at least one model`);
+  if (!isRecord(provider.models)) {
+    errors.push(`model.providers.${id}.models must be an object`);
   } else {
     for (const [modelId, model] of Object.entries(provider.models)) {
       if (!normalizeString(modelId)) {
@@ -875,7 +875,8 @@ function purgeLegacyProviderDrafts(config, previousConfig) {
       || (isRecord(provider.models) && Object.keys(provider.models).length === 0);
     if (
       modelsAreEmpty
-      && !normalizeString(provider.apiKey)
+      && !allowsMissingApiKey(providerId)
+      && !resolveConfiguredProviderApiKey(providerId, provider)
       && isRecord(previousProvider)
       && JSON.stringify(provider) === JSON.stringify(previousProvider)
       && findModelReferences(config, { providerId }).length === 0

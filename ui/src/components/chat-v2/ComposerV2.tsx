@@ -1495,8 +1495,10 @@ export default function ComposerV2({
                   >
                     <button
                       type="button"
+                      disabled={!isModelCatalogLoading && modelCatalog.length === 0 && !modelCatalogError}
                       onClick={() => setIsModelMenuOpen((open) => !open)}
                       className={cn(
+                        "disabled:cursor-not-allowed disabled:opacity-40",
                         "pd-composer-icon-button inline-flex h-8 max-w-[220px] items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 text-[13px] font-medium text-neutral-700 transition-colors hover:border-[#ddd9f2] hover:bg-[#f7f6ff] hover:text-[#4440a8] dark:text-neutral-200 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
                         isModelMenuOpen &&
                           "border-[#ddd9f2] bg-[#f7f6ff] text-[#4440a8] dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
@@ -1518,7 +1520,7 @@ export default function ComposerV2({
                         strokeWidth={2}
                       />
                     </button>
-                    {isModelMenuOpen ? (
+                    {isModelMenuOpen && (isModelCatalogLoading || modelCatalog.length > 0 || modelCatalogError) ? (
                       <div
                         role="dialog"
                         aria-label={
@@ -1927,7 +1929,8 @@ export default function ComposerV2({
                     <button
                       type="button"
                       onClick={onResumeInputQueue}
-                      className="home-send-button"
+                      disabled={!isModelSelectionReady || !isPermissionModeReady}
+                      className="home-send-button disabled:opacity-40 disabled:grayscale"
                       title={sendTitle}
                       aria-label={sendTitle}
                     >
@@ -1941,6 +1944,7 @@ export default function ComposerV2({
                       aria-busy={isSubmitPending || hasUploadingImages}
                       className={cn(
                         "home-send-button disabled:opacity-40",
+                        modelBlocksSubmission && "grayscale",
                         (isSubmitPending || hasUploadingImages) && "cursor-wait",
                       )}
                       title={sendTitle}

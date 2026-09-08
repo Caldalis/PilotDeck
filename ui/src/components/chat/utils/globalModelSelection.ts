@@ -57,6 +57,10 @@ export function createGlobalModelSelectionStore() {
           defaultSelection = normalizeModelSelection(data.defaultSelection);
           const catalog: ChatModelCatalogItem[] = (Array.isArray(data.items) ? data.items : [])
             .map(parseCatalogItem).filter((item: ChatModelCatalogItem | null): item is ChatModelCatalogItem => Boolean(item));
+          if (catalog.length === 0 && !defaultSelection) {
+            preference = null;
+            safeLocalStorage.removeItem(GLOBAL_MODEL_SELECTION_KEY);
+          }
           loaded = true;
           publish({ catalog, selection: preference || defaultSelection, loading: false, error: null });
         } catch (error) {

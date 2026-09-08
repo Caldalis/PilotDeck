@@ -71,8 +71,16 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
   const applyChange = async (
     next: PilotDeckConfig,
     options?: ConfigSaveOptions,
-  ): Promise<ConfigSaveResult> =>
-    (await onChange(next, options)) ?? { ok: true };
+  ): Promise<ConfigSaveResult> => {
+    // Adding the first model after an empty pool restores the default in the
+    // same explicit save; simply viewing Settings never writes configuration.
+    if (!next.agent?.model) {
+      const first = Object.entries(next.model?.providers ?? {}).find(([id, value]) =>
+        isProviderConfigured(value, findCatalogProviderById(id)));
+      if (first) next = patch(next, ["agent", "model"], `${first[0]}/${Object.keys(first[1].models ?? {})[0]}`);
+    }
+    return (await onChange(next, options)) ?? { ok: true };
+  };
 
   const removeProvider = async (id: string) => {
     const next = { ...providers };
@@ -284,8 +292,8 @@ export default function ModelsSection({ config, onChange }: ModelsSectionProps) 
             const slash = modelRef.indexOf("/");
             const candidateId = modelRef.slice(0, slash);
             const candidate = providers[candidateId];
-            if (slash < 1 || !Object.prototype.hasOwnProperty.call(candidate?.models ?? {}, modelRef.slice(slash + 1))
-              || !isProviderConfigured(candidate, findCatalogProviderById(candidateId))) {
+            if (modelRef && (slash < 1 || !Object.prototype.hasOwnProperty.call(candidate?.models ?? {}, modelRef.slice(slash + 1))
+              || !isProviderConfigured(candidate, findCatalogProviderById(candidateId)))) {
               return { ok: false, error: t("pilotDeckConfig.panels.models.deleteDialog.replacementUnavailable") };
             }
             const remaining = { ...providers };

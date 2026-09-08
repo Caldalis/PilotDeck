@@ -9,7 +9,7 @@ vi.mock('../../../../../utils/api', () => ({ authenticatedFetch: mocks.fetch }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-function setup({ hasOtherReference = false, rejectSave = false, emptyDefinition = false, brokenUrl = false } = {}) {
+function setup({ hasOtherReference = false, rejectSave = false, emptyDefinition = false, brokenUrl = false, noAlternative = false } = {}) {
   const provider = { protocol: 'openai' as const, url: 'https://example.test/v1', apiKey: '********', models: { model: {} } };
   let latest: PilotDeckConfig = {
     agent: { model: 'openai/model' },
@@ -18,6 +18,7 @@ function setup({ hasOtherReference = false, rejectSave = false, emptyDefinition 
       replacement: { ...provider, models: { model: emptyDefinition ? null : {} } },
     } },
   };
+  if (noAlternative) delete latest.model!.providers!.replacement;
   const saves = vi.fn();
   mocks.fetch.mockImplementation(async (url: string) => ({ ok: true, json: async () => url.includes('model-references') ? { references: [
     { path: 'agent.model', value: 'openai/model', kind: 'agent' },
@@ -60,7 +61,9 @@ it.each([false, true])('atomically replaces the default and deletes a broken pro
 it('retains other reference protection without partially switching the default', async () => {
   const { saves, config } = setup({ hasOtherReference: true });
   fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.actions.remove' }));
-  const dialog = await selectReplacement();
+  const dialog = within(await screen.findByRole('dialog'));
+  await waitFor(() => expect(dialog.queryByText('pilotDeckConfig.panels.models.deleteDialog.checking')).toBeNull());
+  expect(dialog.queryByRole('combobox')).toBeNull();
   const remove = dialog.getByRole('button', { name: 'pilotDeckConfig.panels.models.deleteDialog.delete' }) as HTMLButtonElement;
   expect(remove.disabled).toBe(true);
   fireEvent.click(remove);
@@ -90,4 +93,22 @@ it('deletes only the selected model when replacing a referenced model', async ()
   expect(config().agent?.model).toBe('replacement/model');
   expect(config().model?.providers?.openai).toBeDefined();
   expect(config().model?.providers?.openai.models).toEqual({});
+});
+
+
+it.each(['model', 'provider'])('allows clearing the final %s and its default without a replacement', async (kind) => {
+  const { saves, config } = setup({ noAlternative: true });
+  if (kind === 'model') {
+    fireEvent.click(screen.getByRole('button', { name: 'settingsPage.actions.edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.panels.models.removeModelAria' }));
+  } else fireEvent.click(screen.getByRole('button', { name: 'pilotDeckConfig.actions.remove' }));
+  const dialog = within(await screen.findByRole('dialog'));
+  const remove = dialog.getByRole('button', { name: 'pilotDeckConfig.panels.models.deleteDialog.delete' }) as HTMLButtonElement;
+  await waitFor(() => expect(remove.disabled).toBe(false));
+  expect(dialog.queryByRole('combobox')).toBeNull();
+  fireEvent.click(remove);
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(saves).toHaveBeenCalledTimes(1);
+  expect(config().agent?.model).toBe('');
+  expect(config().model?.providers).toEqual(kind === 'provider' ? {} : { openai: expect.objectContaining({ models: {} }) });
 });

@@ -1,7 +1,10 @@
 import express from 'express';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nativeFetch = globalThis.fetch;
+const mocks = vi.hoisted(() => ({ state: 'ready' }));
+vi.mock('../services/modelConfigurationState.js', () => ({ getModelConfigurationState: () => ({ state: mocks.state }) }));
+beforeEach(() => { mocks.state = 'ready'; });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -9,6 +12,21 @@ afterEach(() => {
 });
 
 describe('model routes', () => {
+  it('returns an empty catalog without connecting to Gateway for a cleared pool', async () => {
+    mocks.state = 'empty';
+    const getGateway = vi.fn(() => { throw new Error('Gateway must remain stopped'); });
+    vi.doMock('../pilotdeck-bridge.js', () => ({ getPilotDeckGateway: getGateway }));
+    const { default: routes } = await import('./models.js');
+    const app = express(); app.use('/api/models', routes);
+    const server = app.listen(0);
+    try {
+      const response = await nativeFetch(`http://127.0.0.1:${server.address().port}/api/models?includeAuto=true`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ items: [], defaultSelection: null, router: { enabled: false, autoAvailable: false } });
+      expect(getGateway).not.toHaveBeenCalled();
+    } finally { await new Promise(resolve => server.close(resolve)); }
+  });
+
   it('serves the global catalog without passing project scope to the gateway', async () => {
     const modelCatalogList = vi.fn(async () => ({ items: [], defaultSelection: { mode: 'auto' } }));
     vi.doMock('../pilotdeck-bridge.js', () => ({

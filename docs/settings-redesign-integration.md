@@ -43,6 +43,15 @@ home's `permissions.json`:
 - Provider IDs retain their exact spelling through credential lookup, connection
   tests, saves and model references. Catalog aliases only choose default settings;
   they never rename the stored provider. Custom display names also retain their case. `HXAPI` and `hxapi` remain separate keys.
+- Providers may retain valid connection settings with an empty model map. Removing
+  the final default model clears its default reference in the same confirmed save;
+  references from other features remain protected. Adding the first model to an
+  empty pool restores the default on save without requiring a connection test.
+- An explicitly saved empty pool keeps the application open across refreshes rather
+  than returning to onboarding. Send/model-picker controls are disabled without new
+  explanatory copy. Gateway and model-dependent memory scheduling stop; authenticated
+  project/session history reads use Gateway's shared disk readers without starting
+  another agent runtime. Adding a model resumes normal Gateway operation.
 - A successful probe is shown as healthy only after its result is saved. Save
   failures offer a retry using the same test record, without another model probe,
   or a fresh test if the record has expired. Credential and endpoint matching,
@@ -107,11 +116,13 @@ home's `permissions.json`:
 - Focused interaction regressions cover these decisions. Isolated Chromium with the
   real config API verifies single-save recovery from a broken built-in provider using
   a null model definition, Gateway/catalog recovery,
-  DeepSeek proxy model listing, scheduler enabling and mobile navigation.
+  DeepSeek proxy model listing, scheduler enabling and mobile navigation. A separate
+  empty-pool round trip verifies last-model/provider removal, history after page and
+  process restarts, disabled send/Enter, and restoring the default and Gateway after adding a model.
 
 ## Validation
 
-- Web Regression's local suite: **172 files, 1,401 tests passed** with the same
+- Web Regression's local suite: **173 files, 1,412 tests passed** with the same
   existing CI exclusions for Playwright E2E, streamSmoother and desktop network tests.
 - Model parsing and Pilot config loading tests: **18 passed**.
 - Desktop packaging helper tests: **41 passed**; desktop updater network tests passed.

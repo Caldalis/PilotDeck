@@ -55,6 +55,28 @@ function useTempConfig(contents) {
 }
 
 describe('model configuration state', () => {
+  it('distinguishes a saved empty pool from onboarding and restores readiness after adding a model', () => {
+    const config = configuredModel();
+    config.schemaVersion = 1;
+    config.agent.model = '';
+    config.model.providers.custom.models = {};
+    const path = useTempConfig(JSON.stringify(config));
+    expect(getModelConfigurationState({ env: {} }).state).toBe('empty');
+    config.model.providers = {};
+    writeFileSync(path, JSON.stringify(config));
+    expect(getModelConfigurationState({ env: {} }).state).toBe('empty');
+    writeFileSync(path, JSON.stringify({ ...configuredModel(), schemaVersion: 1 }));
+    expect(getModelConfigurationState({ env: {} }).state).toBe('ready');
+  });
+
+  it('excludes an empty provider from runtime without invalidating another model', () => {
+    const config = configuredModel();
+    config.schemaVersion = 1;
+    config.model.providers.empty = { protocol: 'openai', url: 'https://example.test/v1', apiKey: 'key', models: {} };
+    useTempConfig(JSON.stringify(config));
+    expect(getModelConfigurationState({ env: {} }).state).toBe('ready');
+  });
+
   it('quarantines an invalid unused provider without rewriting the file or changing the primary model', () => {
     const config = configuredModel();
     config.schemaVersion = 1;

@@ -39,6 +39,13 @@ function authValue(overrides = {}) {
 afterEach(() => cleanup());
 
 describe('ProtectedRoute runtime states', () => {
+  it('keeps the application visible with an empty model pool and stopped Gateway', () => {
+    mocks.auth = authValue({ modelConfiguration: { state: 'empty' }, gatewayRuntime: { state: 'stopped' } });
+    render(<MemoryRouter><ProtectedRoute><div>application</div></ProtectedRoute></MemoryRouter>);
+    expect(screen.getByText('application')).toBeTruthy();
+    expect(screen.queryByText('onboarding')).toBeNull();
+  });
+
   it('shows onboarding while model configuration is missing', () => {
     mocks.auth = authValue({
       modelConfiguration: {
